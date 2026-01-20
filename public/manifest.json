@@ -1,0 +1,21 @@
+{
+  "name": "Bingo AJP-Logic Online",
+  "short_name": "Bingo AJP",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05070a",
+  "theme_color": "#d4af37",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/ajp.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/ajp.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

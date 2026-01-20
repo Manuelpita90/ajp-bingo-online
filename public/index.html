@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bingo Online - AJP-Logic Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#d4af37">
+    <link rel="apple-touch-icon" href="/icons/ajp.png">
+</head>
+
+<body>
+
+    <div class="game-container">
+        <button id="btn-install-pwa" class="btn-install-pwa" onclick="instalarPWA()" title="Instalar App">⬇</button>
+        
+        <button class="btn-about" onclick="mostrarAcercaDe()" title="Acerca de">
+            <img src="/icons/ajp.png" alt="AJP">
+        </button>
+        <h1>BINGO AJP-Logic</h1>
+
+        <div id="cards-container" class="cards-container">
+            <!-- Los cartones se generarán aquí -->
+        </div>
+
+        <div class="last-calls-container">
+            <h3>Últimas Bolas:</h3>
+            <div id="waiting-message" class="waiting-message" style="display: none;">⏳ Esperando inicio de partida...</div>
+            <div id="last-calls" class="balls-row">
+                <div class="ball-placeholder">--</div>
+                <div class="ball-placeholder">--</div>
+                <div class="ball-placeholder">--</div>
+                <div class="ball-placeholder">--</div>
+                <div class="ball-placeholder">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PERSONALIZADO -->
+    <div id="custom-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h2 id="modal-title">TÍTULO</h2>
+            <p id="modal-message">Mensaje del sistema</p>
+            <button onclick="cerrarModal()">CERRAR</button>
+        </div>
+    </div>
+
+    <!-- EFECTOS DE SONIDO -->
+    <audio id="audio-ball" src="sounds/pop.mp3"></audio>
+    <audio id="audio-win" src="sounds/win.mp3"></audio>
+    <audio id="audio-fail" src="sounds/fail.mp3"></audio>
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Consola del Administrador - Bingo AJP-Logic</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="admin-container">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h1>🎙️ PANEL DEL ADMINISTRADOR</h1>
+            <!-- El contador se inyectará automáticamente por JS con el nuevo diseño -->
+        </div>
+
+        <div class="controls">
+            <div class="display-section">
+                <div id="display-ball">--</div>
+            </div>
+            <button class="btn-extract" onclick="extraerBola()">SACAR BOLA</button>
+            <br>
+            <button class="btn-reset" onclick="reiniciarJuego()">Reiniciar Partida</button>
+            <p id="ball-text">¡Mucha suerte a todos!</p>
+        </div>
+
+        <h3>Historial de Bolas (1-75)</h3>
+        <div id="master-board" class="master-board">
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="admin.js"></script>
+</body>
+
+</html>
