@@ -3,7 +3,10 @@ if (typeof io === 'undefined') {
     alert("Error crítico: La librería Socket.IO no está cargada. Asegúrate de incluir <script src='/socket.io/socket.io.js'></script> en tu HTML antes de cargar este script.");
     throw new Error("Socket.IO no definido");
 }
-const socket = io();
+
+// Detectar si estamos en GitHub Pages para conectar al servidor de Render
+const isGitHubPages = window.location.hostname.includes('github.io');
+const socket = io(isGitHubPages ? 'https://ajp-bingo-online.onrender.com' : undefined);
 
 // Identificar este cliente como administrador en el servidor
 socket.on('connect', () => {
@@ -18,6 +21,12 @@ let isAnimating = false;
 let cachedPlayerCount = 0;
 let cachedCardCount = 0;
 let viewingPlayersList = false;
+let currentWinnersList = []; // Almacén local de ganadores
+
+// Pre-cargar audios para rendimiento
+const audioWin = new Audio('sounds/win.mp3');
+const audioFail = new Audio('sounds/fail.mp3');
+const audioRequest = new Audio('sounds/request.mp3');
 
 // 2. Inicializar el tablero maestro (1-75)
 function initTablero() {
@@ -51,11 +60,25 @@ function initTablero() {
             <div style="display:flex; gap:15px">
                 <div onclick="verDetallesJugadores()" style="cursor:pointer" title="Ver lista de Jugadores">👥 JUGADORES: <span id="player-count" style="color:white; font-size:1.2em">${cachedPlayerCount}</span></div>
                 <div onclick="verDetallesCartones()" style="cursor:pointer" title="Ver lista de IDs">🎫 CARTONES: <span id="card-count" style="color:white; font-size:1.2em">${cachedCardCount}</span></div>
+                <div title="Total de bolas extraídas">🎱 BOLAS: <span id="balls-count" style="color:white; font-size:1.2em">${bolasExtraidas.length}</span></div>
             </div>
             <div id="connection-status" style="color:var(--success)">● ONLINE</div>
         `;
         // Insertar antes del tablero
         if (board) adminContainer.insertBefore(statusBar, board);
+    }
+
+    // MOVER BOTÓN REINICIAR DEBAJO DEL TABLERO
+    const btnReset = document.querySelector('.btn-reset');
+    if (btnReset && board && board.parentNode) {
+        board.parentNode.insertBefore(btnReset, board.nextSibling);
+    } else if (!btnReset && board && board.parentNode) {
+        // Si no existe, lo creamos dinámicamente
+        const newBtn = document.createElement('button');
+        newBtn.className = 'btn-reset';
+        newBtn.textContent = '⚠️ REINICIAR PARTIDA';
+        newBtn.onclick = reiniciarJuego;
+        board.parentNode.insertBefore(newBtn, board.nextSibling);
     }
 
     // Crear contenedor de notificaciones si no existe
@@ -112,56 +135,38 @@ function initTablero() {
         btn.style.color = 'var(--gold-solid)';
         btn.innerHTML = '📩 SOLICITUDES <span id="btn-req-count">(0)</span>';
         btn.onclick = () => {
-            const sec = document.getElementById('requests-section');
-            if (sec) sec.style.display = sec.style.display === 'none' ? 'block' : 'none';
+            verSolicitudesEnModal();
         };
         targetContainer.appendChild(btn);
     }
 
-    // --- SECCIÓN DE SOLICITUDES PENDIENTES (OCULTA) ---
-    if (!document.getElementById('requests-section')) {
-        const section = document.createElement('div');
-        section.id = 'requests-section';
-        section.className = 'winners-section'; // Reutilizamos estilo
-        section.style.marginTop = '10px';
-        section.style.borderLeft = '3px solid var(--gold-solid)';
-        section.style.display = 'none';
-        section.innerHTML = `
-            <div class="winners-title">
-                <span>📩 Lista de Solicitudes</span>
-            </div>
-            <div id="requests-list" class="winners-list" style="max-height: 200px;">
-                <div id="empty-requests-msg" style="color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;">No hay solicitudes pendientes.</div>
-            </div>
-        `;
-        targetContainer.appendChild(section);
+    // --- ALMACÉN DE SOLICITUDES (OCULTO) ---
+    if (!document.getElementById('requests-storage')) {
+        const storage = document.createElement('div');
+        storage.id = 'requests-storage';
+        storage.style.display = 'none';
+        
+        const list = document.createElement('div');
+        list.id = 'requests-list';
+        list.className = 'winners-list';
+        
+        const emptyMsg = document.createElement('div');
+        emptyMsg.id = 'empty-requests-msg';
+        emptyMsg.style.cssText = 'color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;';
+        emptyMsg.textContent = 'No hay solicitudes pendientes.';
+        
+        list.appendChild(emptyMsg);
+        storage.appendChild(list);
+        document.body.appendChild(storage);
     }
 
-    // INYECTAR SECCIÓN DE GANADORES (Si no existe)
-    if (!document.getElementById('winners-section')) {
-        const section = document.createElement('div');
-        section.id = 'winners-section';
-        section.className = 'winners-section';
-        section.style.marginTop = '0'; // Resetear margen porque el contenedor ya tiene gap
-        section.innerHTML = `
-            <div class="winners-title">
-                <span>🏆 Historial de Ganadores</span>
-                <span id="winners-count" style="background:var(--gold-solid); color:#000; padding:2px 8px; border-radius:10px; font-size:0.8em">0</span>
-            </div>
-            <div id="winners-list" class="winners-list">
-                <div id="empty-winners-msg" style="color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;">Aún no hay ganadores...</div>
-            </div>
-        `;
-        targetContainer.appendChild(section);
-    }
-
-    // INYECTAR BOTÓN PANTALLA COMPLETA
-    if (!document.getElementById('btn-fullscreen')) {
+    // INYECTAR BOTÓN HISTORIAL GANADORES (Reemplaza la sección fija)
+    if (!document.getElementById('btn-winners')) {
         const btn = document.createElement('button');
-        btn.id = 'btn-fullscreen';
+        btn.id = 'btn-winners';
         btn.className = 'btn-outline';
-        btn.textContent = '⛶ PANTALLA COMPLETA';
-        btn.onclick = toggleFullScreen;
+        btn.textContent = '🏆 HISTORIAL DE GANADORES';
+        btn.onclick = window.verHistorialGanadores;
         targetContainer.appendChild(btn);
     }
 
@@ -172,6 +177,16 @@ function initTablero() {
         btn.className = 'btn-outline';
         btn.textContent = '📜 HISTORIAL DE PARTIDAS';
         btn.onclick = window.verHistorialPartidas;
+        targetContainer.appendChild(btn);
+    }
+
+    // INYECTAR BOTÓN PANTALLA COMPLETA
+    if (!document.getElementById('btn-fullscreen')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-fullscreen';
+        btn.className = 'btn-outline';
+        btn.textContent = '⛶ PANTALLA COMPLETA';
+        btn.onclick = toggleFullScreen;
         targetContainer.appendChild(btn);
     }
 
@@ -200,6 +215,13 @@ function extraerBola() {
     if (juegoPausado) {
         if (confirm("⛔ El juego está PAUSADO tras un Bingo válido.\n¿Ya has verificado el cartón y deseas continuar?")) {
             juegoPausado = false;
+            // Restaurar botón de extracción
+            const btn = document.querySelector('.btn-extract');
+            if (btn) {
+                btn.textContent = "SACAR BOLA";
+                btn.style.background = "";
+                btn.style.boxShadow = "";
+            }
         } else {
             return;
         }
@@ -251,6 +273,10 @@ function actualizarConsolaAdmin(bola) {
     else letra = "O";
 
     statusText.textContent = `Número cantado: ${letra}-${bola}`;
+
+    // Actualizar contador de bolas
+    const counter = document.getElementById('balls-count');
+    if (counter) counter.textContent = bolasExtraidas.length;
 }
 
 // 4. Gestión de Eventos del Servidor
@@ -283,25 +309,19 @@ socket.on('notificar-bingo', (data) => {
 
     if (data.valid) {
         agregarGanador(data);
+        // Pausa automática al detectar ganador
+        if (!juegoPausado) {
+            window.pausarJuego(true);
+        }
+        // Visualizar automáticamente el cartón ganador en pantalla
+        verCartonEnModal(data);
     }
 });
 
 // RECIBIR HISTORIAL PERSISTENTE
 socket.on('historial-ganadores', (lista) => {
-    const list = document.getElementById('winners-list');
-    if (list) list.innerHTML = '';
-    
-    if (!lista || lista.length === 0) {
-        if (list) list.innerHTML = '<div id="empty-winners-msg" style="color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;">Aún no hay ganadores...</div>';
-        const count = document.getElementById('winners-count');
-        if (count) count.textContent = '0';
-        return;
-    }
-
-    // Insertar en orden inverso (del más viejo al más nuevo) porque agregarGanador hace prepend
-    for (let i = lista.length - 1; i >= 0; i--) {
-        agregarGanador(lista[i]);
-    }
+    // Actualizar memoria local
+    currentWinnersList = lista || [];
 });
 
 // 5. Reiniciar el Juego
@@ -319,10 +339,11 @@ socket.on('limpiar-tablero', () => {
     document.getElementById('ball-text').textContent = "¡Mucha suerte a todos!";
     
     // Limpiar lista de ganadores
-    const list = document.getElementById('winners-list');
-    const count = document.getElementById('winners-count');
-    if (list) list.innerHTML = '<div id="empty-winners-msg" style="color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;">Aún no hay ganadores...</div>';
-    if (count) count.textContent = '0';
+    currentWinnersList = [];
+
+    // Resetear contador de bolas
+    const ballCounter = document.getElementById('balls-count');
+    if (ballCounter) ballCounter.textContent = '0';
 });
 
 // Sincronización por si el admin refresca la página
@@ -351,13 +372,11 @@ function mostrarNotificacionAdmin(data) {
     const title = isValid ? 'BINGO VÁLIDO' : 'RECLAMO INVÁLIDO';
     const colorTitle = isValid ? 'var(--success)' : 'var(--danger)';
     
-    // Reproducir sonido (usando los archivos que ya tienes en public/sounds)
-    //TODO: Usar objetos de audio pre-cargados para mejor rendimiento
-    const audioWin = new Audio('sounds/win.mp3');
-    const audioFail =  new Audio('sounds/fail.mp3');
-
     const audio = isValid ? audioWin : audioFail;
-    if(audio) audio.play().catch(e => console.warn("Audio bloqueado:", e));
+    if(audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.warn("Audio bloqueado:", e));
+    }
 
     // Botón de pausa solo si es válido
     let botonPausa = '';
@@ -365,68 +384,80 @@ function mostrarNotificacionAdmin(data) {
         botonPausa = `<button onclick="event.stopPropagation(); window.pausarJuego();" style="margin-top:8px; padding:6px; width:100%; background:var(--dark-bg); color:var(--danger); border:1px solid var(--danger); border-radius:6px; font-weight:bold; cursor:pointer;">🛑 PAUSAR JUEGO</button>`;
     }
 
+    const nombreDisplay = data.nombre ? `${data.nombre}` : `ID: ${data.id.substr(0,4)}`;
+    const winningNumsDisplay = data.winningNumbers && data.winningNumbers.length > 0 
+        ? data.winningNumbers.join(', ') 
+        : (data.numeros ? data.numeros.join(', ') : '');
+
     notif.innerHTML = `
+        <div class="notif-close-btn" style="position:absolute; top:5px; right:5px; padding:5px; cursor:pointer; opacity:0.6; font-weight:bold; z-index:5;" title="Cerrar notificación">✕</div>
         <div class="notif-header" style="color: ${colorTitle}">
             <span>${icon} ${title}</span>
-            <span style="font-size: 0.7em; opacity: 0.7">ID: ${data.id.substr(0,4)} | 🎫 ${data.cartonId}</span>
+            <span style="font-size: 0.7em; opacity: 0.7; margin-right:15px;">🎫 ${data.cartonId}</span>
         </div>
         <div class="notif-body">
+            <div style="font-size:1.1em; font-weight:bold; color:white; margin-bottom:4px;">${nombreDisplay}</div>
             <div style="margin-bottom:4px;"><strong>Motivo:</strong> ${data.reason || 'Línea correcta'}</div>
-            <div><strong>Números:</strong> ${data.numeros.join(', ')}</div>
+            <div><strong>Ganadores:</strong> ${winningNumsDisplay}</div>
+            <div style="font-size:0.8em; color:var(--gold-solid); margin-top:5px; font-style:italic;">(Click para ver cartón)</div>
             ${botonPausa}
         </div>
     `;
 
-    // Cerrar al hacer click
+    // Click en notificación abre el modal
     notif.onclick = () => {
-        notif.style.opacity = '0';
-        setTimeout(() => notif.remove(), 300);
+        verCartonEnModal(data);
     };
+
+    // Click en cerrar
+    const btnClose = notif.querySelector('.notif-close-btn');
+    if (btnClose) {
+        btnClose.onclick = (e) => {
+            e.stopPropagation();
+            notif.style.opacity = '0';
+            setTimeout(() => notif.remove(), 300);
+        };
+    }
 
     // Auto cerrar en 8 segundos
     setTimeout(() => {
-        if (document.body.contains(notif)) notif.click();
+        if (document.body.contains(notif)) {
+            notif.style.opacity = '0';
+            setTimeout(() => notif.remove(), 300);
+        }
     }, 8000);
 
     container.appendChild(notif);
 }
 
 // Función global para pausar desde la notificación
-window.pausarJuego = function() {
+window.pausarJuego = function(automatico = false) {
     juegoPausado = true;
-    alert("🛑 JUEGO PAUSADO\nNo podrás extraer más bolas hasta que confirmes la reanudación al intentar sacar la siguiente.");
+    
+    // Feedback visual en el botón principal
+    const btn = document.querySelector('.btn-extract');
+    if (btn) {
+        btn.textContent = "🛑 JUEGO PAUSADO";
+        btn.style.background = "var(--danger)";
+        btn.style.boxShadow = "none";
+    }
+
+    if (!automatico) {
+        alert("🛑 JUEGO PAUSADO\nNo podrás extraer más bolas hasta que confirmes la reanudación al intentar sacar la siguiente.");
+    }
 };
 
 // 7. Función para agregar ganador al historial
 function agregarGanador(data) {
-    const list = document.getElementById('winners-list');
-    const count = document.getElementById('winners-count');
-    const emptyMsg = document.getElementById('empty-winners-msg');
+    // Agregar al principio de la lista en memoria
+    currentWinnersList.unshift(data);
     
-    if (!list) return;
-    if (emptyMsg) emptyMsg.remove();
-
-    const item = document.createElement('div');
-    item.className = 'winner-item';
-    
-    // Usar timestamp del servidor si existe, o el actual
-    const now = data.timestamp ? new Date(data.timestamp) : new Date();
-    const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    item.innerHTML = `
-        <div class="winner-info">
-            <div style="font-weight:bold; color:var(--text-main)">
-                JUGADOR ID: ${data.id.substr(0,4)} 
-                <span style="color:var(--gold-solid); font-size:0.9em; margin-left:5px;">(🎫 ${data.cartonId})</span>
-            </div>
-            <div style="font-size:0.85em; opacity:0.8">${data.reason || 'Bingo Válido'}</div>
-        </div>
-        <div class="winner-time">${time}</div>
-    `;
-
-    list.insertBefore(item, list.firstChild);
-    
-    if (count) count.textContent = list.children.length;
+    // Si el modal de ganadores está abierto, refrescarlo
+    const modal = document.getElementById('admin-modal');
+    const title = document.getElementById('admin-modal-title');
+    if (modal.style.display === 'flex' && title && title.textContent.includes('GANADORES')) {
+        window.verHistorialGanadores();
+    }
 }
 
 // 8. Pantalla Completa
@@ -469,6 +500,7 @@ window.verDetallesCartones = function() {
 };
 
 socket.on('admin-detalles-cartones', (lista) => {
+    safeguardRequestsList();
     const html = lista.length > 0 
         ? `<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
             ${lista.map(id => `<span style="background: rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--glass-border); font-family: monospace; font-size: 1.1em; color: var(--gold-solid);">${id}</span>`).join('')}
@@ -487,6 +519,7 @@ window.verDetallesJugadores = function() {
 };
 
 socket.on('admin-lista-jugadores', (lista) => {
+    safeguardRequestsList();
     if (!viewingPlayersList) return;
 
     const html = lista.length > 0 
@@ -513,8 +546,44 @@ socket.on('admin-lista-jugadores', (lista) => {
 });
 
 window.cerrarModalAdmin = function() {
+    safeguardRequestsList();
     viewingPlayersList = false;
     document.getElementById('admin-modal').style.display = 'none';
+};
+
+// 12. Ver Historial de Ganadores (Estilo Modal)
+window.verHistorialGanadores = function() {
+    safeguardRequestsList();
+    let html = '';
+    if (!currentWinnersList || currentWinnersList.length === 0) {
+        html = '<p style="color: var(--text-muted); text-align:center;">Aún no hay ganadores en esta partida.</p>';
+    } else {
+        html = currentWinnersList.map(w => {
+            const date = w.timestamp ? new Date(w.timestamp).toLocaleTimeString() : '';
+            const rank = w.winnerRank ? `#${w.winnerRank}` : '';
+            return `
+                <div style="background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid var(--success);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
+                        <strong style="color:var(--text-main); font-size:1.1em">
+                            <span style="color:var(--gold-solid); margin-right:5px;">${rank}</span> ${w.nombre || 'Anónimo'}
+                        </strong>
+                        <span style="font-size:0.85em; color:var(--text-muted); font-family:monospace;">${date}</span>
+                    </div>
+                    <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px;">
+                        🎫 Cartón: <span style="color:var(--gold-solid);">${w.cartonId}</span>
+                    </div>
+                    <div style="font-size:0.85em; color:var(--success);">
+                        Números: ${w.winningNumbers ? w.winningNumbers.join(', ') : 'N/A'}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    const modal = document.getElementById('admin-modal');
+    document.getElementById('admin-modal-title').textContent = `🏆 GANADORES (${currentWinnersList.length})`;
+    document.getElementById('admin-modal-body').innerHTML = html;
+    modal.style.display = 'flex';
 };
 
 // 11. Ver Historial de Partidas
@@ -523,6 +592,7 @@ window.verHistorialPartidas = function() {
 };
 
 socket.on('admin-historial-partidas', (history) => {
+    safeguardRequestsList();
     let html = '';
     if (!history || history.length === 0) {
         html = '<p style="color: var(--text-muted); text-align:center;">No hay partidas registradas en el historial.</p>';
@@ -562,8 +632,10 @@ socket.on('admin-nueva-solicitud', (data) => {
     if (emptyMsg) emptyMsg.remove();
     
     // Reproducir sonido de notificación
-    const audio = new Audio('sounds/request.mp3'); 
-    audio.play().catch(e=>{});
+    if (audioRequest) {
+        audioRequest.currentTime = 0;
+        audioRequest.play().catch(e=>{});
+    }
 
     const item = document.createElement('div');
     item.id = `req-${data.socketId}`;
@@ -760,5 +832,93 @@ socket.on('chat-nuevo-mensaje', (data) => {
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 });
+
+function verCartonEnModal(data) {
+    safeguardRequestsList();
+    const modal = document.getElementById('admin-modal');
+    const title = document.getElementById('admin-modal-title');
+    const body = document.getElementById('admin-modal-body');
+    
+    title.textContent = `CARTÓN ${data.cartonId}`;
+    
+    if (!data.carton || !Array.isArray(data.carton)) {
+        body.innerHTML = "<p style='text-align:center; color:var(--text-muted);'>No hay datos visuales del cartón.</p>";
+        modal.style.display = 'flex';
+        return;
+    }
+
+    const marked = new Set((data.numeros || []).map(String));
+    const winners = new Set((data.winningNumbers || []).map(String));
+
+    let gridHtml = '<div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; max-width:350px; margin:0 auto; background:rgba(0,0,0,0.3); padding:15px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">';
+    
+    // Headers
+    ['B','I','N','G','O'].forEach(l => {
+        gridHtml += `<div style="text-align:center; font-weight:800; color:var(--gold-solid); padding-bottom:5px; font-size:1.2em;">${l}</div>`;
+    });
+
+    // Rows
+    for(let r=0; r<5; r++) {
+        for(let c=0; c<5; c++) {
+            const val = data.carton[r][c];
+            let style = 'background:rgba(255,255,255,0.05); color:white; border:1px solid rgba(255,255,255,0.05);';
+            let content = val;
+
+            if (val === 'FREE') {
+                content = '★';
+                style = 'background:rgba(212, 175, 55, 0.15); color:var(--gold-solid); border:1px dashed var(--gold-solid);';
+            } else {
+                const sVal = String(val);
+                if (winners.has(sVal)) {
+                    style = 'background:var(--success); color:white; font-weight:bold; box-shadow:0 0 15px rgba(16, 185, 129, 0.4); border:1px solid white; transform:scale(1.05); z-index:2;';
+                } else if (marked.has(sVal)) {
+                    style = 'background:var(--gold-solid); color:black; font-weight:bold; box-shadow:0 0 5px rgba(212, 175, 55, 0.3);';
+                }
+            }
+
+            gridHtml += `<div style="${style} aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:8px; font-size:1.1em; transition:all 0.3s;">${content}</div>`;
+        }
+    }
+    gridHtml += '</div>';
+
+    const infoHtml = `
+        <div style="text-align:center; margin-bottom:20px;">
+            <h3 style="color:white; margin-bottom:5px; font-size:1.4em;">${data.nombre || 'Jugador'}</h3>
+            <div style="color:var(--text-muted); font-size:0.9em;">ID: ${data.id}</div>
+        </div>
+        ${gridHtml}
+        <div style="margin-top:20px; text-align:center; padding-top:15px; border-top:1px solid rgba(255,255,255,0.1);">
+            <div style="margin-bottom:5px; font-size:1.1em;">Estado: <strong style="color:${data.valid?'var(--success)':'var(--danger)'}">${data.valid?'VÁLIDO':'INVÁLIDO'}</strong></div>
+            <div style="font-size:0.9em; opacity:0.8;">${data.reason || ''}</div>
+        </div>
+    `;
+
+    body.innerHTML = infoHtml;
+    modal.style.display = 'flex';
+}
+
+window.verSolicitudesEnModal = function() {
+    safeguardRequestsList();
+    const list = document.getElementById('requests-list');
+    const modal = document.getElementById('admin-modal');
+    const title = document.getElementById('admin-modal-title');
+    const body = document.getElementById('admin-modal-body');
+
+    if (!list) return;
+
+    list.style.maxHeight = 'none';
+    title.textContent = "📩 SOLICITUDES PENDIENTES";
+    body.innerHTML = ''; 
+    body.appendChild(list);
+    modal.style.display = 'flex';
+};
+
+function safeguardRequestsList() {
+    const list = document.getElementById('requests-list');
+    const storage = document.getElementById('requests-storage');
+    if (list && storage && !storage.contains(list)) {
+        storage.appendChild(list);
+    }
+}
 
 window.onload = initTablero;

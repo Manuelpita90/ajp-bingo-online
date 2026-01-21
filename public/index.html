@@ -6,12 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bingo Online - AJP-Logic Edition</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#d4af37">
-    <link rel="apple-touch-icon" href="/icons/ajp.png">
+    <link rel="apple-touch-icon" href="./icons/ajp.png">
 </head>
 
 <body>
+
+    <button class="btn-share" onclick="compartirEnlace()" title="Compartir Enlace">🔗</button>
 
     <div class="game-container">
         <button id="btn-install-pwa" class="btn-install-pwa" onclick="instalarPWA()" title="Instalar App">⬇</button>
@@ -20,10 +22,6 @@
             <img src="/icons/ajp.png" alt="AJP">
         </button>
         <h1>BINGO AJP-Logic</h1>
-
-        <div id="cards-container" class="cards-container">
-            <!-- Los cartones se generarán aquí -->
-        </div>
 
         <div class="last-calls-container">
             <h3>Últimas Bolas:</h3>
@@ -35,6 +33,10 @@
                 <div class="ball-placeholder">--</div>
                 <div class="ball-placeholder">--</div>
             </div>
+        </div>
+
+        <div id="cards-container" class="cards-container">
+            <!-- Los cartones se generarán aquí -->
         </div>
     </div>
 
@@ -51,9 +53,10 @@
     <audio id="audio-ball" src="sounds/pop.mp3"></audio>
     <audio id="audio-win" src="sounds/win.mp3"></audio>
     <audio id="audio-fail" src="sounds/fail.mp3"></audio>
+    <audio id="audio-suspense" src="sounds/suspense.mp3"></audio>
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js"></script>
 </body>
 

@@ -15,7 +15,8 @@ app.use('/icons', express.static(path.join(__dirname, 'icons')));
 // ESTADO GLOBAL DEL JUEGO
 let bolasCantadas = [];
 let usuariosConectados = 0;
-const activeCardIds = new Set();
+const activeCartones = new Map(); // Key: ID, Value: { socketId, matrix }
+const cartonesEnJuego = new Map(); // Key: ID, Value: Matrix (Autoritativa para la partida)
 let currentGameId = Date.now().toString();
 
 // PERSISTENCIA DE GANADORES
@@ -79,7 +80,7 @@ function emitirJugadoresListos() {
         }
     }
     io.emit('jugadores-listos', count);
-    io.emit('cartones-en-juego', activeCardIds.size);
+    io.emit('cartones-en-juego', activeCartones.size);
     // Enviar lista detallada a los administradores
     io.to('admins').emit('admin-lista-jugadores', detalles);
 }
@@ -99,24 +100,73 @@ io.on('connection', (socket) => {
     });
 
     // GESTIÓN DE IDs ÚNICOS
-    socket.on('registrar-id', (id, callback) => {
+    socket.on('registrar-id', (payload, callback) => {
+        const id = payload.id || payload; // Soporte para formato antiguo o nuevo
+        const matrix = payload.matrix || null;
+
+        // --- SALA DE ESPERA ---
+        // Si la partida ya empezó y este ID no estaba jugando, rechazar
+        if (bolasCantadas.length > 0) {
+            if (!cartonesEnJuego.has(id)) {
+                return callback({ accepted: false, reason: 'GAME_IN_PROGRESS' });
+            }
+            // ANTI-CHEAT: Verificar integridad de la matriz
+            const originalMatrix = JSON.stringify(cartonesEnJuego.get(id));
+            const incomingMatrix = JSON.stringify(matrix);
+            if (originalMatrix !== incomingMatrix) {
+                console.warn(`ALERTA DE SEGURIDAD: ID ${id} intentó modificar su cartón durante la partida.`);
+                return callback({ accepted: false, reason: 'INVALID_MATRIX_INTEGRITY' });
+            }
+        }
+        // ----------------------
+
         // Inicializar set de IDs para este socket si no existe
         if (!socket.data.cartonIds) socket.data.cartonIds = new Set();
 
         // Si ya lo tiene este socket registrado, todo ok
         if (socket.data.cartonIds.has(id)) {
+            // Actualizar matriz si se provee (ej. reconexión)
+            if (matrix) activeCartones.set(id, { socketId: socket.id, matrix });
             return callback({ accepted: true });
         }
 
         // Si el ID está ocupado por OTRO socket
-        if (activeCardIds.has(id)) {
-            callback({ accepted: false });
+        if (activeCartones.has(id)) {
+            // MEJORA DE CONSISTENCIA: Verificar si es una reconexión del mismo cartón
+            const existing = activeCartones.get(id);
+            // Si la matriz es idéntica, asumimos que es el usuario recuperando sesión (o refresh rápido)
+            if (matrix && JSON.stringify(existing.matrix) === JSON.stringify(matrix)) {
+                existing.socketId = socket.id; // Actualizar dueño
+                socket.data.cartonIds.add(id);
+                callback({ accepted: true });
+                console.log(`ID ${id} recuperado por socket ${socket.id}`);
+            } else {
+                callback({ accepted: false });
+            }
         } else {
-            activeCardIds.add(id);
+            activeCartones.set(id, { socketId: socket.id, matrix: matrix });
             socket.data.cartonIds.add(id);
+            
+            // Solo registramos/actualizamos la matriz autoritativa si el juego NO ha empezado.
+            // Si ya empezó, la validación de arriba asegura que coincida, así que no hace falta tocarlo.
+            if (bolasCantadas.length === 0) {
+                cartonesEnJuego.set(id, matrix);
+            }
+            
             callback({ accepted: true });
             console.log(`ID registrado: ${id} para socket ${socket.id}`);
             emitirJugadoresListos(); // Actualizar contador
+        }
+    });
+
+    // Actualizar cartón (cuando el usuario cambia números)
+    socket.on('actualizar-carton', (payload) => {
+        if (bolasCantadas.length > 0) return; // Bloquear cambios si el juego ya inició
+
+        if (socket.data.cartonIds && socket.data.cartonIds.has(payload.id)) {
+            activeCartones.set(payload.id, { socketId: socket.id, matrix: payload.matrix });
+            cartonesEnJuego.set(payload.id, payload.matrix); // Actualizar copia autoritativa
+            console.log(`Cartón ${payload.id} actualizado con nuevos números.`);
         }
     });
 
@@ -143,7 +193,7 @@ io.on('connection', (socket) => {
 
     // 8. Admin solicita lista de cartones
     socket.on('admin-solicitar-detalles-cartones', () => {
-        const lista = Array.from(activeCardIds);
+        const lista = Array.from(activeCartones.keys());
         socket.emit('admin-detalles-cartones', lista);
     });
 
@@ -190,7 +240,10 @@ io.on('connection', (socket) => {
 
     // --- CHAT GLOBAL ---
     socket.on('chat-mensaje', (data) => {
+        // SEGURIDAD: Determinar si es admin basado en la sala, no en lo que envía el cliente
+        const isAdmin = socket.rooms.has('admins');
         data.timestamp = new Date().toISOString();
+        data.esAdmin = isAdmin; // Sobrescribir flag de seguridad
         io.emit('chat-nuevo-mensaje', data);
     });
 
@@ -205,7 +258,7 @@ io.on('connection', (socket) => {
         const payloadBase = {
             id: socket.id,
             numeros: data.numeros,
-            carton: data.carton,
+            carton: data.carton, // Se mantiene para visualización en admin, pero no para validación
             cartonId: data.cartonId || '???'
         };
 
@@ -245,7 +298,8 @@ io.on('connection', (socket) => {
                 if (all) {
                     const cells = [[r,0],[r,1],[r,2],[r,3],[r,4]];
                     if (!lineaTieneBolasCantadas(cells)) return { win: false, reason: 'Algunos números no han sido cantados' };
-                    return { win: true, type: 'fila', index: r };
+                    const winningNumbers = cells.map(([rr, cc]) => carton[rr][cc]).filter(v => v !== 'FREE');
+                    return { win: true, type: 'fila', index: r, winningNumbers };
                 }
             }
 
@@ -256,7 +310,8 @@ io.on('connection', (socket) => {
                 if (all) {
                     const cells = [[0,c],[1,c],[2,c],[3,c],[4,c]];
                     if (!lineaTieneBolasCantadas(cells)) return { win: false, reason: 'Algunos números no han sido cantados' };
-                    return { win: true, type: 'columna', index: c };
+                    const winningNumbers = cells.map(([rr, cc]) => carton[rr][cc]).filter(v => v !== 'FREE');
+                    return { win: true, type: 'columna', index: c, winningNumbers };
                 }
             }
 
@@ -266,7 +321,8 @@ io.on('connection', (socket) => {
             if (diag1) {
                 const cells = [[0,0],[1,1],[2,2],[3,3],[4,4]];
                 if (!lineaTieneBolasCantadas(cells)) return { win: false, reason: 'Algunos números no han sido cantados' };
-                return { win: true, type: 'diagonal', index: 1 };
+                const winningNumbers = cells.map(([rr, cc]) => carton[rr][cc]).filter(v => v !== 'FREE');
+                return { win: true, type: 'diagonal', index: 1, winningNumbers };
             }
 
             let diag2 = true;
@@ -274,18 +330,41 @@ io.on('connection', (socket) => {
             if (diag2) {
                 const cells = [[0,4],[1,3],[2,2],[3,1],[4,0]];
                 if (!lineaTieneBolasCantadas(cells)) return { win: false, reason: 'Algunos números no han sido cantados' };
-                return { win: true, type: 'diagonal', index: 2 };
+                const winningNumbers = cells.map(([rr, cc]) => carton[rr][cc]).filter(v => v !== 'FREE');
+                return { win: true, type: 'diagonal', index: 2, winningNumbers };
             }
 
             return { win: false, reason: 'No hay línea completa' };
         }
 
-        const resultado = validarBingo(data.carton, data.numeros);
+        // VALIDACIÓN SEGURA: Usar la matriz almacenada en el servidor
+        // Prioridad: Usar la matriz autoritativa de cartonesEnJuego para evitar trampas de sesión
+        const matrixToValidate = cartonesEnJuego.get(data.cartonId) || (activeCartones.get(data.cartonId) ? activeCartones.get(data.cartonId).matrix : null);
+        
+        if (!matrixToValidate) {
+            socket.emit('bingo-rechazado', { message: 'Cartón no registrado en la partida actual (Sala de Espera).' });
+            return;
+        }
+        const resultado = validarBingo(matrixToValidate, data.numeros);
+
+        // Datos extendidos del ganador
+        const winnersList = loadWinners();
+        const winnerRank = winnersList.length + 1;
+        const nombreJugador = socket.data.nombre || 'Anónimo';
+
+        const notifData = Object.assign({}, payloadBase, { 
+            valid: !!resultado.win, 
+            reason: resultado.reason,
+            nombre: nombreJugador,
+            winnerRank: winnerRank,
+            winningNumbers: resultado.winningNumbers || [],
+            carton: matrixToValidate // Enviar matriz autoritativa para visualización admin
+        });
 
         // Enviar notificación a admins (preferente) con resultado de validación
         const adminsRoom = io.sockets.adapter.rooms.get('admins');
         const destino = (adminsRoom && adminsRoom.size > 0) ? io.to('admins') : io;
-        destino.emit('notificar-bingo', Object.assign({}, payloadBase, { valid: !!resultado.win, reason: resultado.reason }));
+        destino.emit('notificar-bingo', notifData);
 
         // ACK de recepción
         socket.emit('bingo-recibido', { message: 'Reclamo recibido. ' + (resultado.win ? 'Posible Bingo detectado y enviado al admin.' : 'No se detecta línea válida; enviado al admin para revisión.') });
@@ -295,8 +374,11 @@ io.on('connection', (socket) => {
             // Guardar ganador en archivo persistente
             const winnerData = {
                 id: socket.id,
+                nombre: nombreJugador,
+                winnerRank: winnerRank,
                 cartonId: data.cartonId || '???',
                 numeros: data.numeros,
+                winningNumbers: resultado.winningNumbers || [],
                 reason: resultado.reason,
                 valid: true,
                 timestamp: new Date().toISOString()
@@ -305,6 +387,13 @@ io.on('connection', (socket) => {
 
             socket.emit('bingo-validado', { message: '¡Tu Bingo cumple condiciones (línea válida y números cantados)!' });
             console.log(`Bingo válido para socket ${socket.id}.`);
+
+            // Anunciar a TODOS los jugadores quién ganó
+            io.emit('anuncio-ganador', {
+                id: socket.id,
+                nombre: nombreJugador,
+                cartonId: data.cartonId
+            });
         } else {
             socket.emit('bingo-rechazado', { message: `Reclamo inválido: ${resultado.reason}` });
             console.log(`Bingo inválido para socket ${socket.id}: ${resultado.reason}`);
@@ -336,7 +425,8 @@ io.on('connection', (socket) => {
         clearWinners(); // Borrar archivo al iniciar nueva partida
         
         // Limpiar estado de cartones en el servidor para evitar duplicados
-        activeCardIds.clear();
+        activeCartones.clear();
+        cartonesEnJuego.clear(); // Limpiar lista de jugadores permitidos
         if (io.sockets && io.sockets.sockets) {
             for (const [id, s] of io.sockets.sockets) {
                 if (s.data.cartonIds) s.data.cartonIds.clear();
@@ -353,13 +443,9 @@ io.on('connection', (socket) => {
     // 6. Desconexión
     socket.on('disconnect', () => {
         if (socket.data.cartonIds) {
-            socket.data.cartonIds.forEach(id => activeCardIds.delete(id));
+            socket.data.cartonIds.forEach(id => activeCartones.delete(id));
         }
         
-        //TODO: Eliminar la matrix guardada en session storage
-        //Object.keys(sessionStorage).forEach(key => {
-        //    if (key.startsWith(`matrix-${id}`)) sessionStorage.removeItem(key);
-        //});
         usuariosConectados--;
         if (usuariosConectados < 0) usuariosConectados = 0;
         emitirJugadoresListos(); // Actualizar contador

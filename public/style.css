@@ -98,6 +98,36 @@ body {
     filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
 }
 
+/* BOTÓN COMPARTIR */
+.btn-share {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 50%;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    z-index: 9000;
+    color: var(--gold-solid);
+    font-size: 1.8rem;
+    animation: pulse-gold 2s infinite;
+}
+.btn-share:hover {
+    background: var(--gold-gradient);
+    border-color: #fff;
+    color: #000;
+    transform: rotate(-15deg) scale(1.1);
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+    animation: none;
+}
+
 /* BOTÓN INSTALAR PWA */
 .btn-install-pwa {
     position: absolute;
@@ -362,9 +392,13 @@ h1 {
 .last-calls-container {
     margin: 25px 0;
     padding: 15px;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(5, 7, 10, 0.85);
     border-radius: 16px;
     border: 1px solid rgba(255, 255, 255, 0.05);
+    position: sticky;
+    top: 10px;
+    z-index: 100;
+    backdrop-filter: blur(10px);
 }
 
 .last-calls-container h3 {
@@ -945,4 +979,119 @@ button:active {
 
 .about-modal-pulse {
     animation: gold-pulse 3s infinite ease-in-out;
+}
+
+/* Animación de error al intentar marcar bola no cantada */
+@keyframes shake-error {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.error-shake {
+    animation: shake-error 0.4s ease-in-out;
+    border-color: var(--danger) !important;
+    box-shadow: 0 0 15px var(--danger) !important;
+}
+
+/* --- PWA BANNER (GitHub Pages Ready) --- */
+.pwa-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--gold-solid);
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 20000;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+}
+
+.pwa-banner.visible {
+    transform: translateY(0);
+}
+
+.pwa-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    text-align: left;
+}
+
+.pwa-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+
+.pwa-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.pwa-text strong {
+    color: var(--gold-solid);
+    font-size: 1rem;
+    margin-bottom: 2px;
+}
+
+.pwa-text span {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.pwa-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.pwa-btn-install {
+    background: var(--gold-gradient);
+    color: black;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-weight: 800;
+    font-size: 0.9rem;
+    cursor: pointer;
+    width: auto;
+    box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.pwa-btn-cancel {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 10px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    width: auto;
+}
+
+@media (max-width: 600px) {
+    .pwa-banner {
+        flex-direction: column;
+        gap: 20px;
+        padding-bottom: 30px;
+    }
+    .pwa-content {
+        flex-direction: column;
+        text-align: center;
+    }
+    .pwa-actions {
+        width: 100%;
+        justify-content: center;
+    }
+    .pwa-btn-install, .pwa-btn-cancel {
+        flex: 1;
+        justify-content: center;
+    }
 }

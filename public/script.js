@@ -2,10 +2,14 @@ if (typeof io === 'undefined') {
     alert("Error crítico: La librería Socket.IO no está cargada. Asegúrate de incluir <script src='/socket.io/socket.io.js'></script> en tu HTML antes de cargar este script.");
     throw new Error("Socket.IO no definido");
 }
-const socket = io();
+
+// Detectar si estamos en GitHub Pages para conectar al servidor de Render
+const isGitHubPages = window.location.hostname.includes('github.io');
+const socket = io(isGitHubPages ? 'https://ajp-bingo-online.onrender.com' : undefined);
 
 let historialBolas = [];
 let juegoIniciado = false;
+let numerosCantados = new Set(); // Registro de bolas válidas para marcar
 
 // 1. CARGA INICIAL: Revisa si hay una partida en curso en el navegador
 function cargarJuego() {
@@ -25,7 +29,7 @@ function cargarJuego() {
         mostrarModalSolicitud();
     } else {
         // Registrar IDs en el servidor y renderizar
-        cartones.forEach(c => registrarIdEnServidor(c.id));
+        cartones.forEach(c => registrarIdEnServidor(c));
         renderizarCartones();
     }
     initChat();
@@ -37,23 +41,61 @@ function generarIdAleatorio() {
 }
 
 function generarIdUnico() {
-    //TODO: Implementar generador de id unico
-    return
+    return '#' + Math.floor(10000 + Math.random() * 90000);
 }
 
-function registrarIdEnServidor(id) {
-    socket.emit('registrar-id', id, (response) => {
+function registrarIdEnServidor(cartonObj) {
+    const id = cartonObj.id || cartonObj; // Soporte para string o objeto
+    const data = cartonObj.data || null;
+    const matrix = data ? convertirA_Matriz(data) : null;
+
+    socket.emit('registrar-id', { id, matrix }, (response) => {
         if (response && response.accepted) {
             console.log(`ID ${id} registrado correctamente.`);
         } else {
             console.warn(`ID ${id} ocupado.`);
-            // En un caso real, aquí deberíamos regenerar el ID de este cartón específico y guardar
+            
+            // MANEJO DE SALA DE ESPERA
+            if (response && response.reason === 'GAME_IN_PROGRESS') {
+                mostrarModal("⏳ SALA DE ESPERA", "La partida ya ha comenzado. Podrás unirte en la siguiente ronda.", "info");
+                return;
+            }
+
+            // MANEJO DE ERROR DE INTEGRIDAD (ANTI-CHEAT)
+            if (response && response.reason === 'INVALID_MATRIX_INTEGRITY') {
+                mostrarModal("⛔ ERROR DE INTEGRIDAD", "Se ha detectado una modificación no autorizada en tu cartón. Por seguridad, este cartón será eliminado.", "error");
+                // Eliminar cartón corrupto del storage
+                let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+                const nuevosCartones = cartones.filter(c => c.id !== id);
+                sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
+                setTimeout(() => location.reload(), 3000);
+                return;
+            }
+
+            // MEJORA: Si el servidor rechaza el ID al cargar (ej. colisión o sesión fantasma),
+            // intentamos regenerarlo para que el usuario no juegue con un cartón inválido.
+            if (confirm(`El ID ${id} ya está en uso o hubo un error de sincronización. ¿Generar nuevo ID para este cartón?`)) {
+                const cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+                const index = cartones.findIndex(c => c.id === id);
+                if (index !== -1) {
+                    cartones[index].id = generarIdAleatorio();
+                    sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
+                    registrarIdEnServidor(cartones[index]); // Reintentar
+                    renderizarCartones(); // Actualizar UI
+                }
+            }
         }
     });
 }
 
 function agregarNuevoCarton(render = true, callback = null) {
     let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+    
+    if (juegoIniciado) {
+        mostrarModal("⛔ ACCIÓN DENEGADA", "No puedes agregar cartones con la partida iniciada.", 'error');
+        if (callback) callback();
+        return;
+    }
     
     if (cartones.length >= 4) {
         mostrarModal("LÍMITE ALCANZADO", "Solo puedes jugar con un máximo de 4 cartones.", "warning");
@@ -62,21 +104,16 @@ function agregarNuevoCarton(render = true, callback = null) {
     }
 
     const nuevoId = generarIdAleatorio();
-    
+    const nuevoData = generarNuevoSetDeNumeros();
+    const matrix = convertirA_Matriz(nuevoData);
+
     // Validar ID con servidor antes de guardar
-    socket.emit('registrar-id', nuevoId, (response) => {
+    socket.emit('registrar-id', { id: nuevoId, matrix: matrix }, (response) => {
         if (response && response.accepted) {
             
             // CRÍTICO: Re-leer sessionStorage aquí para evitar condiciones de carrera
             let cartonesActuales = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
             
-            const nuevoData = generarNuevoSetDeNumeros();
-            
-            //TODO: Guardar matriz en sessionStorage
-            //const cartonMatrix = convertirA_Matriz(nuevoData);
-            //sessionStorage.setItem(`matrix-${nuevoId}`, JSON.stringify(cartonMatrix));
-
-
             cartonesActuales.push({ id: nuevoId, data: nuevoData });
             sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
             
@@ -102,10 +139,14 @@ function cambiarCartonIndividual(id) {
         let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
         const index = cartones.findIndex(c => c.id === id);
         if (index !== -1) {
-            cartones[index].data = generarNuevoSetDeNumeros();
+            const newData = generarNuevoSetDeNumeros();
+            cartones[index].data = newData;
             sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
             renderizarCartones();
             reproducirSonido('audio-ball');
+
+            // Sincronizar cambio con el servidor
+            socket.emit('actualizar-carton', { id: id, matrix: convertirA_Matriz(newData) });
 
             // Confirmación visual
             const wrapper = document.getElementById(`card-wrapper-${id.replace('#', '')}`);
@@ -213,7 +254,7 @@ function dibujarCeldas(contenedor, columnas) {
                 celda.classList.add('free', 'marked');
                 
                 const img = document.createElement('img');
-                img.src = '/icons/ajp.png';
+                img.src = './icons/ajp.png';
                 img.className = 'free-img';
                 celda.appendChild(img);
             } else {
@@ -225,6 +266,14 @@ function dibujarCeldas(contenedor, columnas) {
                 }
 
                 celda.onclick = () => {
+                    // VALIDACIÓN: Si intenta marcar y el número NO ha salido -> Bloquear
+                    if (!celda.classList.contains('marked') && !numerosCantados.has(num)) {
+                        celda.classList.add('error-shake'); // Feedback visual
+                        setTimeout(() => celda.classList.remove('error-shake'), 500);
+                        // Opcional: reproducirSonido('audio-fail');
+                        return;
+                    }
+
                     celda.classList.toggle('marked');
                     // Guardar estado de la marca
                     const isMarked = celda.classList.contains('marked');
@@ -300,7 +349,9 @@ socket.on('disconnect', () => {
 });
 
 socket.on('anuncio-bola', (numero) => {
+    numerosCantados.add(numero); // Registrar bola como válida
     reproducirSonido('audio-ball');
+    cantarBola(numero); // Cantar letra y número en voz alta
     juegoIniciado = true;
     
     // Ocultar botón de añadir cartón si existe
@@ -324,6 +375,7 @@ socket.on('anuncio-bola', (numero) => {
 });
 
 socket.on('historial', (bolas) => {
+    numerosCantados = new Set(bolas); // Sincronizar lista completa al conectar
     // Verificar si el juego ya empezó para ocultar/mostrar el botón de cambio
     juegoIniciado = bolas.length > 0;
 
@@ -358,6 +410,7 @@ socket.on('limpiar-tablero', (newGameId) => {
     // Reiniciar estado local
     historialBolas = [];
     juegoIniciado = false;
+    numerosCantados.clear(); // Limpiar validación
 
     // Resetear UI
     document.getElementById('waiting-message').style.display = 'block';
@@ -408,6 +461,28 @@ socket.on('bingo-rechazado', (data) => {
     mostrarModal("❌ BINGO RECHAZADO", data.message, 'error');
 });
 
+// NUEVO: Mostrar anuncio global de ganador
+socket.on('anuncio-ganador', (data) => {
+    reproducirSonido('audio-win');
+    lanzarConfeti();
+
+    // Anunciar ganador con voz
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Detener bola anterior si estaba hablando
+        
+        let texto = `¡Bingo! El jugador ${data.nombre} ha ganado.`;
+        if (socket.id && data.id === socket.id) {
+            texto = "¡Felicidades! ¡Has ganado el Bingo!";
+        }
+
+        const utterance = new SpeechSynthesisUtterance(texto);
+        utterance.lang = 'es-ES';
+        window.speechSynthesis.speak(utterance);
+    }
+
+    mostrarModal("🏆 ¡TENEMOS GANADOR!", `El jugador ${data.nombre} ha cantado BINGO con el cartón ${data.cartonId}`, 'success');
+});
+
 // Función para cantar Bingo de un cartón específico
 function reclamarBingoIndividual(cartonObj) {
     const todosMarcados = [];
@@ -420,16 +495,44 @@ function reclamarBingoIndividual(cartonObj) {
         return;
     }
 
-    if (confirm(`¿Cantar BINGO con el cartón ${cartonObj.id}?`)) {
-        const cartonMatrix = convertirA_Matriz(cartonObj.data);
+    mostrarModalConfirmacionBingo(cartonObj, todosMarcados);
+}
 
+function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
+    reproducirSonido('audio-suspense'); // Iniciar sonido de tensión
+    const modal = document.getElementById('custom-modal');
+    const content = modal.querySelector('.modal-content');
+    content.classList.remove('about-modal-pulse');
+    
+    // Guardar estructura original para restaurarla después
+    if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+    content.innerHTML = `
+        <div style="font-size:3.5rem; margin-bottom:15px; animation: pulse 1.5s infinite;">🎤</div>
+        <h2 style="color:var(--gold-solid); margin-bottom:10px; text-transform:uppercase; font-size:1.8rem;">¿Cantar Bingo?</h2>
+        <p style="color:white; font-size:1.1em; margin-bottom:5px;">Vas a reclamar victoria con el <br><strong style="color:var(--gold-solid); font-size:1.2em;">Cartón ${cartonObj.id}</strong></p>
+        <p style="color:var(--text-muted); font-size:0.9em; margin-bottom:25px;">Asegúrate de tener la línea completa correctamente marcada.</p>
+        
+        <div style="display:flex; gap:15px; justify-content:center; width:100%;">
+            <button onclick="cerrarModal()" style="flex:1; background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text-muted);">CANCELAR</button>
+            <button id="btn-confirm-bingo" style="flex:1; background:var(--gold-gradient); color:black; font-weight:800; box-shadow:0 0 20px rgba(212,175,55,0.3);">¡SÍ, BINGO!</button>
+        </div>
+    `;
+
+    document.getElementById('btn-confirm-bingo').onclick = function() {
+        const cartonMatrix = convertirA_Matriz(cartonObj.data);
         socket.emit('reclamar-bingo', {
             numeros: todosMarcados,
             carton: cartonMatrix,
             cartonId: cartonObj.id
         });
-        mostrarModal("⏳ ENVIADO", `Tu cartón ${cartonObj.id} ha sido enviado. Espera la validación.`, 'info');
-    }
+        // Restaurar estructura para que mostrarModal funcione correctamente
+        detenerSonido('audio-suspense'); // Detener sonido al confirmar
+        if (window.originalModalContent) content.innerHTML = window.originalModalContent;
+        mostrarModal("⏳ ENVIADO", `Tu cartón ${cartonObj.id} ha sido enviado al administrador para validación.`, 'info');
+    };
+    
+    modal.style.display = 'flex';
 }
 
 function convertirA_Matriz(columnas) {
@@ -530,7 +633,13 @@ function mostrarModal(titulo, mensaje, tipo) {
 window.cerrarModal = function() {
     const modal = document.getElementById('custom-modal');
     modal.style.display = 'none';
+    detenerSonido('audio-suspense'); // Detener sonido si cancelan/cierran
     modal.querySelector('.modal-content').classList.remove('about-modal-pulse');
+    
+    // Restaurar contenido original para evitar errores en futuros modales
+    if (window.originalModalContent) {
+        modal.querySelector('.modal-content').innerHTML = window.originalModalContent;
+    }
 };
 
 // 8. Efecto de Confeti
@@ -555,6 +664,32 @@ function reproducirSonido(id) {
     if (audio) {
         audio.currentTime = 0; // Reiniciar si ya estaba sonando
         audio.play().catch(e => console.log("Audio bloqueado (interacción requerida):", e));
+    }
+}
+
+function detenerSonido(id) {
+    const audio = document.getElementById(id);
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+    }
+}
+
+// 10. Función Text-to-Speech para cantar la bola
+function cantarBola(numero) {
+    if ('speechSynthesis' in window) {
+        let letra = "";
+        if (numero <= 15) letra = "B";
+        else if (numero <= 30) letra = "I";
+        else if (numero <= 45) letra = "N";
+        else if (numero <= 60) letra = "G";
+        else letra = "O";
+
+        window.speechSynthesis.cancel(); // Detener cualquier audio anterior
+        const utterance = new SpeechSynthesisUtterance(`${letra} ${numero}`);
+        utterance.lang = 'es-ES'; // Configurar idioma español
+        utterance.rate = 0.9;     // Velocidad ligeramente pausada para claridad
+        window.speechSynthesis.speak(utterance);
     }
 }
 
@@ -865,7 +1000,7 @@ function mostrarAcercaDe() {
 
     content.innerHTML = stars + `
         <div style="text-align: center; position: relative; z-index: 2;">
-            <img src="/icons/ajp.png" class="spin-animation" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.5));">
+            <img src="./icons/ajp.png" class="spin-animation" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.5));">
             <h2 class="shine-text" style="margin-bottom: 10px; text-transform: uppercase; font-size: 1.5rem;">Bingo Online</h2>
             <p style="color: white; margin-bottom: 5px; font-size: 1.1em;">Desarrollado por <strong>AJP-Logic</strong></p>
             
@@ -885,23 +1020,139 @@ function mostrarAcercaDe() {
     modal.style.display = 'flex';
 }
 
+// --- COMPARTIR ENLACE ---
+window.compartirEnlace = function() {
+    const url = window.location.href; // Compartir la URL actual (GitHub Pages o Render)
+    const text = "¡Únete a mi partida de Bingo Online! " + url;
+
+    if (navigator.share) {
+        navigator.share({
+            title: 'Bingo Online - AJP-Logic',
+            text: '¡Únete a mi partida de Bingo Online!',
+            url: url
+        }).catch(console.error);
+    } else {
+        // Fallback: Modal con opción de WhatsApp y Copiar
+        const modal = document.getElementById('custom-modal');
+        const content = modal.querySelector('.modal-content');
+        content.classList.remove('about-modal-pulse');
+        
+        if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+        // Detectar si es móvil para usar esquema directo
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const whatsappUrl = isMobile 
+            ? `whatsapp://send?text=${encodeURIComponent(text)}`
+            : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        
+        content.innerHTML = `
+            <h2 style="color:var(--gold-solid); margin-bottom:15px;">COMPARTIR</h2>
+            <p style="color:var(--text-muted); margin-bottom:20px;">Elige una opción:</p>
+            
+            <a href="${whatsappUrl}" target="_blank" onclick="cerrarModal()" style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:15px; background:#25D366; color:white; text-decoration:none; border-radius:12px; font-weight:bold; margin-bottom:15px; transition:transform 0.2s;">
+                <span style="font-size:1.2em">📱</span> Enviar por WhatsApp
+            </a>
+
+            <button onclick="mostrarQR('${url}')" style="background:rgba(255,255,255,0.1); border:1px solid var(--glass-border); color:white; margin-bottom:15px;">🔳 Mostrar QR</button>
+            
+            <button onclick="cerrarModal()" style="background:transparent; border:1px solid var(--text-muted); color:var(--text-muted); font-size:0.9rem; padding:10px;">CANCELAR</button>
+        `;
+        
+        modal.style.display = 'flex';
+    }
+};
+
+window.mostrarQR = function(url) {
+    const modal = document.getElementById('custom-modal');
+    const content = modal.querySelector('.modal-content');
+    
+    // Usamos una API pública para generar el QR
+    const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+    
+    content.innerHTML = `
+        <h2 style="color:var(--gold-solid); margin-bottom:15px;">CÓDIGO QR</h2>
+        <div style="background:white; padding:15px; border-radius:12px; display:inline-block; margin-bottom:20px;">
+            <img src="${qrApi}" alt="QR Code" style="width:180px; height:180px; display:block;">
+        </div>
+        <p style="color:var(--text-muted); font-size:0.9em; margin-bottom:20px;">Escanea para unirte a la partida</p>
+        
+        <button onclick="compartirEnlace()" style="background:transparent; border:1px solid var(--gold-solid); color:var(--gold-solid); margin-bottom:10px;">⬅ VOLVER</button>
+        <button onclick="cerrarModal()" style="background:transparent; border:1px solid var(--text-muted); color:var(--text-muted);">CERRAR</button>
+    `;
+};
+
 // --- PWA INSTALLATION ---
 let deferredPrompt;
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(err => console.log('Error SW:', err));
+        // Usar ruta relativa para compatibilidad con GitHub Pages (subdirectorios)
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('Error SW:', err));
     });
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    const btn = document.getElementById('btn-install-pwa');
-    if (btn) btn.style.display = 'flex';
+    
+    // Mostrar Banner si no ha sido descartado previamente
+    if (!localStorage.getItem('pwa-banner-dismissed')) {
+        mostrarBannerPWA();
+    } else {
+        // Fallback: Mostrar botón flotante si ya cerró el banner antes
+        const btn = document.getElementById('btn-install-pwa');
+        if (btn) btn.style.display = 'flex';
+    }
 });
 
+function mostrarBannerPWA() {
+    if (document.getElementById('pwa-install-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'pwa-install-banner';
+    banner.className = 'pwa-banner';
+    banner.innerHTML = `
+        <div class="pwa-content">
+            <img src="./icons/ajp.png" alt="App Icon" class="pwa-icon">
+            <div class="pwa-text">
+                <strong>Instalar Bingo Online</strong>
+                <span>Instala la App para una mejor experiencia de juego.</span>
+            </div>
+        </div>
+        <div class="pwa-actions">
+            <button onclick="cerrarBannerPWA()" class="pwa-btn-cancel">Ahora no</button>
+            <button onclick="instalarPWA()" class="pwa-btn-install">Instalar</button>
+        </div>
+    `;
+    document.body.appendChild(banner);
+    
+    // Animación de entrada
+    requestAnimationFrame(() => {
+        banner.classList.add('visible');
+    });
+}
+
+window.cerrarBannerPWA = function() {
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) {
+        banner.classList.remove('visible');
+        setTimeout(() => banner.remove(), 300);
+    }
+    localStorage.setItem('pwa-banner-dismissed', 'true');
+    
+    // Mostrar botón flotante pequeño por si cambia de opinión
+    const btn = document.getElementById('btn-install-pwa');
+    if (btn) btn.style.display = 'flex';
+};
+
 window.instalarPWA = function() {
+    // Cerrar banner si está abierto
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) {
+        banner.classList.remove('visible');
+        setTimeout(() => banner.remove(), 300);
+    }
+
     if (deferredPrompt) {
         deferredPrompt.prompt();
         deferredPrompt.userChoice.then((choiceResult) => {
