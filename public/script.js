@@ -731,12 +731,34 @@ function mostrarModalSolicitud() {
         
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Tu Nombre:</label>
-            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. Juan Pérez">
+            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. JUAN PÉREZ" oninput="this.value = this.value.toUpperCase()">
         </div>
 
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Banco Emisor:</label>
-            <input type="text" id="player-bank" class="admin-input" style="width:100%" placeholder="Ej. Banco Venezuela">
+            <select id="player-bank" class="admin-input" style="width:100%; background:rgba(0,0,0,0.5); color: white;">
+                <option value="" disabled selected>Seleccione Banco...</option>
+                <option value="Banco de Venezuela" style="color:black;">Banco de Venezuela</option>
+                <option value="Banesco" style="color:black;">Banesco</option>
+                <option value="Banco Mercantil" style="color:black;">Banco Mercantil</option>
+                <option value="BBVA Provincial" style="color:black;">BBVA Provincial</option>
+                <option value="Banco Bicentenario" style="color:black;">Banco Bicentenario</option>
+                <option value="Banco del Tesoro" style="color:black;">Banco del Tesoro</option>
+                <option value="Bancamiga" style="color:black;">Bancamiga</option>
+                <option value="BNC" style="color:black;">Banco Nacional de Crédito (BNC)</option>
+                <option value="Bancaribe" style="color:black;">Bancaribe</option>
+                <option value="Banco Exterior" style="color:black;">Banco Exterior</option>
+                <option value="BFC" style="color:black;">Banco Fondo Común (BFC)</option>
+                <option value="Banplus" style="color:black;">Banplus</option>
+                <option value="Banco Plaza" style="color:black;">Banco Plaza</option>
+                <option value="Banco Caroní" style="color:black;">Banco Caroní</option>
+                <option value="100% Banco" style="color:black;">100% Banco</option>
+                <option value="Banco Sofitasa" style="color:black;">Banco Sofitasa</option>
+                <option value="Bancrecer" style="color:black;">Bancrecer</option>
+                <option value="Mi Banco" style="color:black;">Mi Banco</option>
+                <option value="Banco Activo" style="color:black;">Banco Activo</option>
+                <option value="Otro" style="color:black;">Otro</option>
+            </select>
         </div>
 
         <div style="text-align:left; margin-bottom:15px;">
@@ -769,8 +791,20 @@ function enviarSolicitud() {
     const status = document.getElementById('solicitud-status');
     const btn = document.querySelector('#custom-modal button');
 
-    if (!nombre || !banco || !referencia) {
-        status.textContent = "Por favor, completa todos los campos (Nombre, Banco y Referencia).";
+    if (!nombre) {
+        status.textContent = "Por favor, escribe tu nombre.";
+        status.style.color = "var(--danger)";
+        return;
+    }
+
+    if (!banco) {
+        status.textContent = "⚠️ Debes seleccionar un Banco de la lista.";
+        status.style.color = "var(--danger)";
+        return;
+    }
+
+    if (!referencia) {
+        status.textContent = "Falta el número de referencia.";
         status.style.color = "var(--danger)";
         return;
     }

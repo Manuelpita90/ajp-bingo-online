@@ -344,6 +344,15 @@ socket.on('limpiar-tablero', () => {
     // Resetear contador de bolas
     const ballCounter = document.getElementById('balls-count');
     if (ballCounter) ballCounter.textContent = '0';
+
+    // Resetear estado de pausa y restaurar botón
+    juegoPausado = false;
+    const btn = document.querySelector('.btn-extract');
+    if (btn) {
+        btn.textContent = "SACAR BOLA";
+        btn.style.background = "";
+        btn.style.boxShadow = "";
+    }
 });
 
 // Sincronización por si el admin refresca la página
@@ -922,3 +931,87 @@ function safeguardRequestsList() {
 }
 
 window.onload = initTablero;
+
+// --- PWA INSTALLATION (ADMIN) ---
+let deferredPrompt;
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        // Usar ruta relativa para compatibilidad con GitHub Pages
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('Error SW:', err));
+    });
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    // Mostrar Banner si no ha sido descartado previamente
+    if (!localStorage.getItem('pwa-banner-dismissed')) {
+        mostrarBannerPWA();
+    } else {
+        // Fallback: Mostrar botón flotante si ya cerró el banner antes
+        const btn = document.getElementById('btn-install-pwa');
+        if (btn) btn.style.display = 'flex';
+    }
+});
+
+function mostrarBannerPWA() {
+    if (document.getElementById('pwa-install-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'pwa-install-banner';
+    banner.className = 'pwa-banner';
+    banner.innerHTML = `
+        <div class="pwa-content">
+            <img src="./icons/ajp.png" alt="App Icon" class="pwa-icon">
+            <div class="pwa-text">
+                <strong>Instalar Panel Admin</strong>
+                <span>Gestiona el Bingo desde una App nativa.</span>
+            </div>
+        </div>
+        <div class="pwa-actions">
+            <button onclick="cerrarBannerPWA()" class="pwa-btn-cancel">Ahora no</button>
+            <button onclick="instalarPWA()" class="pwa-btn-install">Instalar</button>
+        </div>
+    `;
+    document.body.appendChild(banner);
+    
+    // Animación de entrada
+    requestAnimationFrame(() => {
+        banner.classList.add('visible');
+    });
+}
+
+window.cerrarBannerPWA = function() {
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) {
+        banner.classList.remove('visible');
+        setTimeout(() => banner.remove(), 300);
+    }
+    localStorage.setItem('pwa-banner-dismissed', 'true');
+    
+    // Mostrar botón flotante pequeño por si cambia de opinión
+    const btn = document.getElementById('btn-install-pwa');
+    if (btn) btn.style.display = 'flex';
+};
+
+window.instalarPWA = function() {
+    // Cerrar banner si está abierto
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) {
+        banner.classList.remove('visible');
+        setTimeout(() => banner.remove(), 300);
+    }
+
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                const btn = document.getElementById('btn-install-pwa');
+                if (btn) btn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        });
+    }
+};

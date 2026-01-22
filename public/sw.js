@@ -2,8 +2,10 @@ const CACHE_NAME = 'bingo-ajp-v1';
 const ASSETS = [
   './',
   './index.html',
+  './admin.html',
   './style.css',
   './script.js',
+  './admin.js',
   './icons/ajp.png',
   './sounds/pop.mp3',
   './sounds/win.mp3',

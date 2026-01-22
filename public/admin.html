@@ -5,11 +5,15 @@
     <meta charset="UTF-8">
     <title>Consola del Administrador - Bingo AJP-Logic</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#d4af37">
+    <link rel="apple-touch-icon" href="./icons/ajp.png">
 </head>
 
 <body>
 
     <div class="admin-container">
+        <button id="btn-install-pwa" class="btn-install-pwa" onclick="instalarPWA()" title="Instalar App">⬇</button>
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h1>🎙️ PANEL DEL ADMINISTRADOR</h1>
             <!-- El contador se inyectará automáticamente por JS con el nuevo diseño -->
