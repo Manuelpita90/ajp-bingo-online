@@ -11,7 +11,8 @@ const ASSETS = [
   './sounds/win.mp3',
   './sounds/fail.mp3',
   './sounds/request.mp3',
-  './sounds/suspense.mp3'
+  './sounds/suspense.mp3',
+  './sounds/alarm.mp3'
 ];
 
 self.addEventListener('install', (event) => {

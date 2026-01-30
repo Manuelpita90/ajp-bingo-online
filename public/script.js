@@ -36,8 +36,12 @@ function cargarJuego() {
 }
 
 function generarIdAleatorio() {
-    // Implementación sencilla (para producción, considera UUID)
-    return '#' + Math.floor(1000 + Math.random() * 9000); 
+    // Uso de crypto.randomUUID si está disponible para evitar colisiones
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return '#' + crypto.randomUUID().split('-')[0].toUpperCase();
+    }
+    // Fallback mejorado
+    return '#' + Math.floor(100000 + Math.random() * 900000); 
 }
 
 function generarIdUnico() {
@@ -369,7 +373,7 @@ socket.on('anuncio-bola', (numero) => {
     celdas.forEach(celda => {
         if (parseInt(celda.textContent) === numero) {
             celda.style.border = "2px solid var(--gold-solid)";
-            celda.style.boxShadow = "0 0 15px rgba(212, 175, 55, 0.4)";
+            celda.style.boxShadow = "0 0 15px rgba(51, 107, 135, 0.4)";
         }
     });
 });
@@ -515,7 +519,7 @@ function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
         
         <div style="display:flex; gap:15px; justify-content:center; width:100%;">
             <button onclick="cerrarModal()" style="flex:1; background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text-muted);">CANCELAR</button>
-            <button id="btn-confirm-bingo" style="flex:1; background:var(--gold-gradient); color:black; font-weight:800; box-shadow:0 0 20px rgba(212,175,55,0.3);">¡SÍ, BINGO!</button>
+            <button id="btn-confirm-bingo" style="flex:1; background:var(--gold-gradient); color:black; font-weight:800; box-shadow:0 0 20px rgba(51,107,135,0.3);">¡SÍ, BINGO!</button>
         </div>
     `;
 
@@ -649,8 +653,8 @@ function lanzarConfeti() {
 
     (function frame() {
         // Lanzar confeti desde las esquinas inferiores con colores dorados y blancos
-        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#d4af37', '#ffffff'], zIndex: 2000 });
-        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#d4af37', '#ffffff'], zIndex: 2000 });
+        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
+        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
 
         if (Date.now() < end) {
             requestAnimationFrame(frame);
@@ -1034,7 +1038,7 @@ function mostrarAcercaDe() {
 
     content.innerHTML = stars + `
         <div style="text-align: center; position: relative; z-index: 2;">
-            <img src="./icons/ajp.png" class="spin-animation" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.5));">
+            <img src="./icons/ajp.png" class="spin-animation" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 10px rgba(51, 107, 135, 0.5));">
             <h2 class="shine-text" style="margin-bottom: 10px; text-transform: uppercase; font-size: 1.5rem;">Bingo Online</h2>
             <p style="color: white; margin-bottom: 5px; font-size: 1.1em;">Desarrollado por <strong>AJP-Logic</strong></p>
             

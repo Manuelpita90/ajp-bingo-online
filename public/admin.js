@@ -10,8 +10,12 @@ const socket = io(isGitHubPages ? 'https://ajp-bingo-online.onrender.com' : unde
 
 // Identificar este cliente como administrador en el servidor
 socket.on('connect', () => {
-    socket.emit('admin-join');
-    console.log('Admin conectado y registrado como admin en el servidor.');
+    const token = sessionStorage.getItem('admin-token');
+    if (token) {
+        socket.emit('admin-join', token);
+    } else {
+        mostrarLoginAdmin();
+    }
 });
 
 let bolasExtraidas = [];
@@ -22,11 +26,24 @@ let cachedPlayerCount = 0;
 let cachedCardCount = 0;
 let viewingPlayersList = false;
 let currentWinnersList = []; // Almacén local de ganadores
+let gameStartTime = null;
+let gameTimerInterval = null;
+let autoPlayInterval = null;
+let autoPlaySpeed = 4000;
+let voiceEnabled = true;
+
+socket.on('admin-error', (msg) => {
+    sessionStorage.removeItem('admin-token');
+    mostrarLoginAdmin("Credenciales inválidas");
+});
 
 // Pre-cargar audios para rendimiento
 const audioWin = new Audio('sounds/win.mp3');
 const audioFail = new Audio('sounds/fail.mp3');
 const audioRequest = new Audio('sounds/request.mp3');
+const audioAlarm = new Audio('sounds/alarm.mp3'); // Asegúrate de añadir este archivo
+audioAlarm.loop = true;
+audioAlarm.volume = 0.3; // Volumen suave para no aturdir
 
 // 2. Inicializar el tablero maestro (1-75)
 function initTablero() {
@@ -61,6 +78,7 @@ function initTablero() {
                 <div onclick="verDetallesJugadores()" style="cursor:pointer" title="Ver lista de Jugadores">👥 JUGADORES: <span id="player-count" style="color:white; font-size:1.2em">${cachedPlayerCount}</span></div>
                 <div onclick="verDetallesCartones()" style="cursor:pointer" title="Ver lista de IDs">🎫 CARTONES: <span id="card-count" style="color:white; font-size:1.2em">${cachedCardCount}</span></div>
                 <div title="Total de bolas extraídas">🎱 BOLAS: <span id="balls-count" style="color:white; font-size:1.2em">${bolasExtraidas.length}</span></div>
+                <div title="Tiempo transcurrido">⏱️ <span id="game-timer" style="color:white; font-size:1.2em">00:00</span></div>
             </div>
             <div id="connection-status" style="color:var(--success)">● ONLINE</div>
         `;
@@ -68,17 +86,21 @@ function initTablero() {
         if (board) adminContainer.insertBefore(statusBar, board);
     }
 
-    // MOVER BOTÓN REINICIAR DEBAJO DEL TABLERO
-    const btnReset = document.querySelector('.btn-reset');
-    if (btnReset && board && board.parentNode) {
-        board.parentNode.insertBefore(btnReset, board.nextSibling);
-    } else if (!btnReset && board && board.parentNode) {
-        // Si no existe, lo creamos dinámicamente
-        const newBtn = document.createElement('button');
-        newBtn.className = 'btn-reset';
-        newBtn.textContent = '⚠️ REINICIAR PARTIDA';
-        newBtn.onclick = reiniciarJuego;
-        board.parentNode.insertBefore(newBtn, board.nextSibling);
+    // MOVER CONTROLES INFERIORES (Reiniciar + Auto + Voz) DEBAJO DEL TABLERO
+    const bottomControls = document.querySelector('.bottom-controls-wrapper');
+    if (bottomControls && board && board.parentNode) {
+        board.parentNode.insertBefore(bottomControls, board.nextSibling);
+    } else {
+        const btnReset = document.querySelector('.btn-reset');
+        if (btnReset && board && board.parentNode) {
+            board.parentNode.insertBefore(btnReset, board.nextSibling);
+        } else if (!btnReset && board && board.parentNode) {
+            const newBtn = document.createElement('button');
+            newBtn.className = 'btn-reset';
+            newBtn.textContent = '⚠️ REINICIAR PARTIDA';
+            newBtn.onclick = reiniciarJuego;
+            board.parentNode.insertBefore(newBtn, board.nextSibling);
+        }
     }
 
     // Crear contenedor de notificaciones si no existe
@@ -190,6 +212,18 @@ function initTablero() {
         targetContainer.appendChild(btn);
     }
 
+    // INYECTAR BOTÓN CERRAR SESIÓN
+    if (!document.getElementById('btn-logout')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-logout';
+        btn.className = 'btn-outline';
+        btn.style.borderColor = 'var(--danger)';
+        btn.style.color = 'var(--danger)';
+        btn.textContent = '🔒 CERRAR SESIÓN';
+        btn.onclick = window.cerrarSesionAdmin;
+        targetContainer.appendChild(btn);
+    }
+
     // INYECTAR MODAL ADMIN (Para ver detalles)
     if (!document.getElementById('admin-modal')) {
         const modal = document.createElement('div');
@@ -206,6 +240,10 @@ function initTablero() {
         document.body.appendChild(modal);
     }
     initChatAdmin();
+
+    // Inicializar color del slider
+    const slider = document.getElementById('speed-slider');
+    if (slider) updateAutoSpeed(slider.value);
 }
 
 // 3. Función Principal: Extraer y Anunciar Bola
@@ -249,6 +287,7 @@ function extraerBola() {
     setTimeout(() => {
         clearInterval(interval);
         actualizarConsolaAdmin(bola);
+        cantarBolaAdmin(bola);
         socket.emit('nueva-bola-admin', bola);
         isAnimating = false;
     }, 1000);
@@ -278,6 +317,141 @@ function actualizarConsolaAdmin(bola) {
     const counter = document.getElementById('balls-count');
     if (counter) counter.textContent = bolasExtraidas.length;
 }
+
+function cantarBolaAdmin(numero) {
+    if (!voiceEnabled) return;
+    if ('speechSynthesis' in window) {
+        let letra = "";
+        if (numero <= 15) letra = "B";
+        else if (numero <= 30) letra = "I";
+        else if (numero <= 45) letra = "N";
+        else if (numero <= 60) letra = "G";
+        else letra = "O";
+
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(`${letra} ${numero}`);
+        utterance.lang = 'es-ES';
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
+// --- CONTROL DE VOZ ---
+window.toggleVoice = function() {
+    voiceEnabled = !voiceEnabled;
+    const btn = document.getElementById('btn-voice');
+    if (btn) {
+        if (voiceEnabled) {
+            btn.textContent = "🔊 VOZ: ACTIVADA";
+            btn.style.borderColor = "var(--gold-solid)";
+            btn.style.color = "var(--gold-solid)";
+            btn.style.opacity = "1";
+        } else {
+            btn.textContent = "🔇 VOZ: DESACTIVADA";
+            btn.style.borderColor = "var(--text-muted)";
+            btn.style.color = "var(--text-muted)";
+            btn.style.opacity = "0.7";
+        }
+    }
+};
+
+// --- CONTROL DE COLAPSO ---
+window.toggleBottomControls = function() {
+    const content = document.getElementById('controls-content');
+    const arrow = document.getElementById('controls-arrow');
+    
+    if (content) {
+        if (content.classList.contains('expanded')) {
+            content.classList.remove('expanded');
+            if(arrow) arrow.style.transform = 'rotate(0deg)';
+        } else {
+            content.classList.add('expanded');
+            if(arrow) arrow.style.transform = 'rotate(180deg)';
+        }
+    }
+};
+
+// --- CONTROL DE VELOCIDAD ---
+window.updateAutoSpeed = function(val) {
+    autoPlaySpeed = val * 1000;
+    const display = document.getElementById('speed-display');
+    const slider = document.getElementById('speed-slider');
+
+    // Calcular color: 2s = Verde (120), 10s = Rojo (0)
+    // Fórmula de interpolación lineal
+    const hue = 120 - ((val - 2) / 8) * 120; 
+    const color = `hsl(${hue}, 100%, 50%)`;
+
+    if (display) {
+        display.textContent = val + 's';
+        display.style.color = color;
+        display.style.textShadow = `0 0 10px ${color}`;
+    }
+
+    if (slider) {
+        slider.style.accentColor = color;
+        slider.style.boxShadow = `0 0 15px ${color.replace('50%', '20%')}`; // Resplandor suave
+    }
+    
+    // Si está corriendo, reiniciar intervalo para aplicar cambio inmediato
+    if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = setInterval(() => {
+            if (juegoPausado || bolasExtraidas.length >= totalBolas) {
+                detenerAutomatico();
+                return;
+            }
+            extraerBola();
+        }, autoPlaySpeed);
+    }
+};
+
+// --- MODO AUTOMÁTICO ---
+window.toggleAutomatico = function() {
+    const btn = document.getElementById('btn-auto');
+    
+    if (autoPlayInterval) {
+        detenerAutomatico();
+    } else {
+        if (juegoPausado) {
+            alert("El juego está pausado. Debes reanudarlo antes de activar el modo automático.");
+            return;
+        }
+        if (bolasExtraidas.length >= totalBolas) {
+            alert("No quedan bolas por sacar.");
+            return;
+        }
+
+        if (btn) {
+            btn.textContent = "⏹ DETENER AUTO";
+            btn.style.background = "var(--danger)";
+            btn.classList.add('pulse-animation');
+        }
+        
+        extraerBola(); // Primera bola inmediata
+        
+        autoPlayInterval = setInterval(() => {
+            if (juegoPausado || bolasExtraidas.length >= totalBolas) {
+                detenerAutomatico();
+                return;
+            }
+            extraerBola();
+        }, autoPlaySpeed);
+    }
+};
+
+window.detenerAutomatico = function() {
+    if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+    }
+    const btn = document.getElementById('btn-auto');
+    if (btn) {
+        btn.textContent = "🔄 AUTOMÁTICO";
+        btn.style.background = "linear-gradient(135deg, #1F4558, #143D59)";
+        btn.classList.remove('pulse-animation');
+    }
+};
 
 // 4. Gestión de Eventos del Servidor
 socket.on('jugadores-listos', (cantidad) => {
@@ -315,13 +489,33 @@ socket.on('notificar-bingo', (data) => {
         }
         // Visualizar automáticamente el cartón ganador en pantalla
         verCartonEnModal(data);
+        
+        // Activar alerta visual en botón de reinicio
+        const btnReset = document.querySelector('.btn-reset');
+        if (btnReset) {
+            btnReset.classList.add('game-over');
+            if (audioAlarm.paused) {
+                audioAlarm.currentTime = 0;
+                audioAlarm.play().catch(e => console.warn("Alarma bloqueada por navegador:", e));
+            }
+        }
     }
 });
 
 // RECIBIR HISTORIAL PERSISTENTE
 socket.on('historial-ganadores', (lista) => {
+    // Si recibimos esto, el login fue exitoso
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) loginModal.style.display = 'none';
+
     // Actualizar memoria local
     currentWinnersList = lista || [];
+    
+    // Si hay ganadores al conectar, marcar el botón de reinicio
+    if (currentWinnersList.length > 0) {
+        const btnReset = document.querySelector('.btn-reset');
+        if (btnReset) btnReset.classList.add('game-over');
+    }
 });
 
 // 5. Reiniciar el Juego
@@ -331,7 +525,23 @@ function reiniciarJuego() {
     }
 }
 
-socket.on('limpiar-tablero', () => {
+socket.on('sync-game-id', (id) => {
+    // El ID ya no controla el tiempo, solo la sesión
+});
+
+socket.on('sync-game-start-time', (timestamp) => {
+    gameStartTime = timestamp;
+    if (gameStartTime) {
+        startTimer();
+    } else {
+        if (gameTimerInterval) clearInterval(gameTimerInterval);
+        updateTimerDisplay(); // Resetear a 00:00
+    }
+});
+
+socket.on('limpiar-tablero', (newId) => {
+    detenerAutomatico();
+    gameStartTime = null;
     bolasExtraidas = [];
     initTablero();
     document.getElementById('display-ball').textContent = "--";
@@ -353,6 +563,16 @@ socket.on('limpiar-tablero', () => {
         btn.style.background = "";
         btn.style.boxShadow = "";
     }
+    
+    // Quitar alerta del botón de reinicio
+    const btnReset = document.querySelector('.btn-reset');
+    if (btnReset) {
+        btnReset.classList.remove('game-over');
+        audioAlarm.pause();
+        audioAlarm.currentTime = 0;
+    }
+    
+    updateTimerDisplay(); // Mostrar 00:00
 });
 
 // Sincronización por si el admin refresca la página
@@ -441,6 +661,7 @@ function mostrarNotificacionAdmin(data) {
 
 // Función global para pausar desde la notificación
 window.pausarJuego = function(automatico = false) {
+    detenerAutomatico();
     juegoPausado = true;
     
     // Feedback visual en el botón principal
@@ -479,6 +700,14 @@ function toggleFullScreen() {
         if (document.exitFullscreen) document.exitFullscreen();
     }
 }
+
+// 8.1 Cerrar Sesión
+window.cerrarSesionAdmin = function() {
+    if (confirm("¿Estás seguro de que deseas cerrar sesión?")) {
+        sessionStorage.removeItem('admin-token');
+        window.location.reload();
+    }
+};
 
 // 9. Mensajería Global
 window.enviarMensajeGlobal = function() {
@@ -875,13 +1104,13 @@ function verCartonEnModal(data) {
 
             if (val === 'FREE') {
                 content = '★';
-                style = 'background:rgba(212, 175, 55, 0.15); color:var(--gold-solid); border:1px dashed var(--gold-solid);';
+                style = 'background:rgba(51, 107, 135, 0.15); color:var(--gold-solid); border:1px dashed var(--gold-solid);';
             } else {
                 const sVal = String(val);
                 if (winners.has(sVal)) {
                     style = 'background:var(--success); color:white; font-weight:bold; box-shadow:0 0 15px rgba(16, 185, 129, 0.4); border:1px solid white; transform:scale(1.05); z-index:2;';
                 } else if (marked.has(sVal)) {
-                    style = 'background:var(--gold-solid); color:black; font-weight:bold; box-shadow:0 0 5px rgba(212, 175, 55, 0.3);';
+                    style = 'background:var(--gold-solid); color:black; font-weight:bold; box-shadow:0 0 5px rgba(51, 107, 135, 0.3);';
                 }
             }
 
@@ -1015,3 +1244,119 @@ window.instalarPWA = function() {
         });
     }
 };
+
+// --- SISTEMA DE LOGIN ---
+function mostrarLoginAdmin(errorMsg = "") {
+    let modal = document.getElementById('login-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'login-modal';
+        modal.className = 'modal-overlay';
+        modal.style.zIndex = '20000';
+        modal.style.backdropFilter = 'blur(15px)';
+        
+        modal.innerHTML = `
+            <div class="modal-content" style="width: 400px; text-align: center; border-color: var(--gold-solid); animation: smoothLoginEntry 0.6s cubic-bezier(0.22, 1, 0.36, 1);">
+                <img src="./icons/ajp.png" alt="Logo AJP" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 15px rgba(51, 107, 135, 0.5));">
+                <h2 style="color: var(--gold-solid); margin-bottom: 10px;">ACCESO ADMIN</h2>
+                <p style="color: var(--text-muted); margin-bottom: 20px;">Introduce la clave para gestionar el juego.</p>
+                
+                <p id="login-error-msg" style="color: var(--danger); margin-bottom: 15px; font-weight: bold; min-height: 1.2em;">${errorMsg}</p>
+                
+                <form id="login-form" onsubmit="event.preventDefault(); submitLogin();">
+                    <div style="position: relative; width: 100%; margin-bottom: 20px;">
+                        <input type="password" id="admin-password-input" class="admin-input" placeholder="Contraseña..." style="width: 100%; text-align: center; font-size: 1.2rem; background: rgba(0,0,0,0.5); padding-right: 40px;" oninput="const btn = document.getElementById('btn-login-submit'); btn.disabled = !this.value.trim(); btn.style.opacity = this.value.trim() ? '1' : '0.5';">
+                        <span id="toggle-password" onclick="togglePasswordVisibility()" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; opacity: 0.7; font-size: 1.2rem; user-select: none;" title="Mostrar contraseña">👁️</span>
+                    </div>
+                    <button id="btn-login-submit" type="submit" disabled style="background: var(--gold-gradient); color: black; box-shadow: 0 0 15px rgba(51, 107, 135, 0.3); opacity: 0.5; transition: opacity 0.3s;">ENTRAR</button>
+                </form>
+                <div onclick="alert('Por seguridad, la contraseña se gestiona en el servidor.\\n\\nSi eres el administrador, revisa la variable ADMIN_TOKEN en la configuración.')" style="margin-top: 15px; cursor: pointer; color: var(--text-muted); font-size: 0.9rem; text-decoration: underline; opacity: 0.7; transition: opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">¿Olvidaste tu contraseña?</div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } else {
+        const errorEl = document.getElementById('login-error-msg');
+        if (errorEl) errorEl.textContent = errorMsg;
+        modal.style.display = 'flex';
+        const btn = document.getElementById('btn-login-submit');
+        if (btn) { btn.textContent = "ENTRAR"; }
+    }
+    
+    if (errorMsg) {
+        const content = modal.querySelector('.modal-content');
+        if (content) {
+            content.classList.remove('error-shake');
+            void content.offsetWidth; // Trigger reflow para reiniciar animación
+            content.classList.add('error-shake');
+            setTimeout(() => content.classList.remove('error-shake'), 500);
+        }
+    }
+    
+    setTimeout(() => {
+        const input = document.getElementById('admin-password-input');
+        if (input) { 
+            input.value = ''; 
+            input.focus(); 
+            const btn = document.getElementById('btn-login-submit');
+            if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+        }
+    }, 100);
+}
+
+window.submitLogin = function() {
+    const input = document.getElementById('admin-password-input');
+    if (!input) return;
+    const token = input.value.trim();
+    if (token) {
+        sessionStorage.setItem('admin-token', token);
+        socket.emit('admin-join', token);
+        
+        const btn = document.getElementById('btn-login-submit');
+        if (btn) { btn.textContent = "VERIFICANDO..."; btn.disabled = true; btn.style.opacity = 0.7; }
+    }
+};
+
+window.togglePasswordVisibility = function() {
+    const input = document.getElementById('admin-password-input');
+    const icon = document.getElementById('toggle-password');
+    if (!input || !icon) return;
+    
+    if (input.type === "password") {
+        input.type = "text";
+        icon.textContent = "🙈"; // Icono de ocultar
+        icon.title = "Ocultar contraseña";
+    } else {
+        input.type = "password";
+        icon.textContent = "👁️"; // Icono de mostrar
+        icon.title = "Mostrar contraseña";
+    }
+    input.focus();
+};
+
+function startTimer() {
+    if (gameTimerInterval) clearInterval(gameTimerInterval);
+    updateTimerDisplay();
+    gameTimerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function updateTimerDisplay() {
+    const el = document.getElementById('game-timer');
+    if (!el) return;
+    
+    if (!gameStartTime) {
+        el.textContent = "00:00";
+        return;
+    }
+    
+    const diff = Math.floor((Date.now() - gameStartTime) / 1000);
+    if (diff < 0) return; // Evitar negativos si el reloj local está desajustado
+
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    const s = diff % 60;
+    
+    const txt = (h > 0 ? h + ':' : '') + 
+                (m < 10 ? '0' : '') + m + ':' + 
+                (s < 10 ? '0' : '') + s;
+    el.textContent = txt;
+}

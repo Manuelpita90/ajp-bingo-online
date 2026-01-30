@@ -6,11 +6,11 @@
 
 :root {
     /* Paleta Ejecutiva y Lucrativa */
-    --gold-gradient: linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
-    --gold-solid: #d4af37;
+    --gold-gradient: linear-gradient(135deg, #336B87, #90AFC5, #1F4558, #5A8CA3, #143D59);
+    --gold-solid: #336B87;
     --dark-bg: #05070a;
     --surface-card: #0f172a;
-    --glass-border: rgba(212, 175, 55, 0.3);
+    --glass-border: rgba(51, 107, 135, 0.3);
     --text-main: #ffffff;
     --text-muted: #94a3b8;
     --success: #10b981;
@@ -29,7 +29,7 @@
 body {
     background-color: var(--dark-bg);
     background-image: 
-        radial-gradient(circle at 20% 20%, rgba(212, 175, 55, 0.07) 0%, transparent 40%),
+        radial-gradient(circle at 20% 20%, rgba(51, 107, 135, 0.07) 0%, transparent 40%),
         radial-gradient(circle at 80% 80%, rgba(56, 189, 248, 0.05) 0%, transparent 40%);
     color: var(--text-main);
     display: flex;
@@ -89,7 +89,7 @@ body {
     background: var(--gold-gradient);
     border-color: #fff;
     transform: rotate(15deg) scale(1.1);
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.4);
 }
 .btn-about img {
     width: 65%;
@@ -124,7 +124,7 @@ body {
     border-color: #fff;
     color: #000;
     transform: rotate(-15deg) scale(1.1);
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.4);
     animation: none;
 }
 
@@ -152,7 +152,7 @@ body {
     background: var(--gold-gradient);
     border-color: #fff;
     color: #000;
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.4);
 }
 
 /* Línea de acento superior */
@@ -174,7 +174,13 @@ h1 {
     background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 2rem;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    filter: drop-shadow(0 0 15px rgba(51, 107, 135, 0.5));
+    animation: title-glow 3s ease-in-out infinite alternate;
+}
+
+@keyframes title-glow {
+    from { filter: drop-shadow(0 0 10px rgba(51, 107, 135, 0.4)); }
+    to { filter: drop-shadow(0 0 25px rgba(51, 107, 135, 0.9)); }
 }
 
 /* --- CONTENEDOR DE CARTONES --- */
@@ -248,7 +254,7 @@ h1 {
 
 .btn-change-card {
     background: rgba(212, 175, 55, 0.15);
-    border: 1px solid var(--gold-solid);
+    border: 1px solid rgba(51, 107, 135, 0.5);
     color: var(--gold-solid);
     width: 34px;
     height: 34px;
@@ -266,13 +272,13 @@ h1 {
 .btn-change-card:hover {
     background: var(--gold-solid);
     color: #000;
-    box-shadow: 0 0 10px rgba(212, 175, 55, 0.4);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.4);
 }
 
 @keyframes pulse-gold {
-    0% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.7); transform: scale(1); }
-    70% { box-shadow: 0 0 0 10px rgba(212, 175, 55, 0); transform: scale(1.05); }
-    100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); transform: scale(1); }
+    0% { box-shadow: 0 0 0 0 rgba(51, 107, 135, 0.7); transform: scale(1); }
+    70% { box-shadow: 0 0 0 10px rgba(51, 107, 135, 0); transform: scale(1.05); }
+    100% { box-shadow: 0 0 0 0 rgba(51, 107, 135, 0); transform: scale(1); }
 }
 
 .btn-mini-bingo.pulse-animation {
@@ -322,7 +328,7 @@ h1 {
     padding: 12px 0;
     border-radius: 8px;
     font-size: 1.1rem;
-    box-shadow: 0 4px 15px rgba(179, 135, 40, 0.4);
+    box-shadow: 0 4px 15px rgba(51, 107, 135, 0.4);
 }
 
 .cell {
@@ -340,7 +346,7 @@ h1 {
 }
 
 .cell:hover {
-    background: rgba(212, 175, 55, 0.1);
+    background: rgba(51, 107, 135, 0.1);
     border-color: var(--gold-solid);
     transform: scale(1.08);
     z-index: 5;
@@ -350,12 +356,12 @@ h1 {
     background: var(--gold-gradient) !important;
     color: #000;
     font-weight: 800;
-    box-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
+    box-shadow: 0 0 20px rgba(51, 107, 135, 0.6);
     border-color: #fff;
 }
 
 .cell.free {
-    background: rgba(212, 175, 55, 0.1);
+    background: rgba(51, 107, 135, 0.1);
     color: var(--gold-solid);
     font-size: 0.7rem;
     border: 1px dashed var(--gold-solid);
@@ -450,16 +456,16 @@ h1 {
     background: var(--gold-gradient);
     color: #000;
     transform: scale(1.2);
-    box-shadow: 0 0 25px rgba(212, 175, 55, 0.6);
+    box-shadow: 0 0 25px rgba(51, 107, 135, 0.6);
     border: 2px solid #fff;
     z-index: 10;
     animation: slideAndPulse 2s infinite, blink-effect 1s infinite;
 }
 
 @keyframes slideAndPulse {
-    0% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.7); }
-    70% { box-shadow: 0 0 0 15px rgba(212, 175, 55, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
+    0% { box-shadow: 0 0 0 0 rgba(51, 107, 135, 0.7); }
+    70% { box-shadow: 0 0 0 15px rgba(51, 107, 135, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(51, 107, 135, 0); }
 }
 
 @keyframes blink-effect {
@@ -483,7 +489,7 @@ h1 {
     padding: 2.5rem;
     margin-bottom: 2rem;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: inset 0 0 20px rgba(212, 175, 55, 0.1);
+    box-shadow: inset 0 0 20px rgba(51, 107, 135, 0.1);
 }
 
 #display-ball {
@@ -493,7 +499,7 @@ h1 {
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 15px rgba(212, 175, 55, 0.4));
+    filter: drop-shadow(0 0 15px rgba(51, 107, 135, 0.4));
     line-height: 1;
 }
 
@@ -525,7 +531,7 @@ h1 {
     background: var(--gold-gradient);
     color: #000;
     font-weight: 800;
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.6);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.6);
     transform: scale(1.15);
     border: 1px solid #fff;
     z-index: 2;
@@ -548,13 +554,37 @@ button {
 .btn-extract {
     background: var(--gold-gradient);
     color: #000;
-    box-shadow: 0 10px 25px -5px rgba(179, 135, 40, 0.4);
+    box-shadow: 0 10px 25px -5px rgba(30, 65, 82, 0.4);
 }
 
 button:hover {
     transform: translateY(-4px);
     filter: brightness(1.2);
-    box-shadow: 0 15px 30px -5px rgba(179, 135, 40, 0.6);
+    box-shadow: 0 15px 30px -5px rgba(30, 65, 82, 0.6);
+}
+
+/* --- CONTROLES COLAPSABLES --- */
+.bottom-controls-wrapper {
+    margin-top: 20px;
+    border-top: 1px solid var(--glass-border);
+    padding-top: 15px;
+}
+
+.controls-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease-out, opacity 0.4s ease-out, margin-top 0.4s;
+    opacity: 0;
+}
+
+.controls-content.expanded {
+    max-height: 600px; /* Altura suficiente para contener todo */
+    opacity: 1;
+    margin-top: 15px;
+}
+
+.btn-toggle-controls:hover {
+    color: var(--gold-solid) !important;
 }
 
 button:active {
@@ -567,6 +597,16 @@ button:active {
     color: var(--danger);
     margin-top: 15px;
     font-size: 0.9rem;
+}
+
+@keyframes blink-red-alert {
+    0%, 100% { background-color: transparent; color: var(--danger); box-shadow: 0 0 0 transparent; }
+    50% { background-color: var(--danger); color: #fff; box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); }
+}
+
+.btn-reset.game-over {
+    animation: blink-red-alert 1.5s infinite;
+    border-color: var(--danger);
 }
 
 .btn-reset:hover {
@@ -585,7 +625,7 @@ button:active {
 .btn-outline:hover {
     border-color: var(--gold-solid);
     color: var(--gold-solid);
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+    box-shadow: 0 0 15px rgba(51, 107, 135, 0.2);
 }
 
 /* --- INPUTS Y CONTROLES ADMIN --- */
@@ -652,7 +692,7 @@ button:active {
     max-width: 90%;
     width: 450px;
     text-align: center;
-    box-shadow: 0 0 50px rgba(212, 175, 55, 0.2);
+    box-shadow: 0 0 50px rgba(51, 107, 135, 0.2);
     animation: slideUp 0.3s ease;
     position: relative;
     overflow: hidden;
@@ -673,6 +713,11 @@ button:active {
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+@keyframes smoothLoginEntry {
+    0% { opacity: 0; transform: scale(0.92) translateY(20px); filter: blur(4px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
 
 /* --- NOTIFICACIONES ADMIN --- */
 .admin-notification-container {
@@ -866,8 +911,8 @@ button:active {
 
 .chat-msg.mine {
     align-self: flex-end;
-    background: rgba(212, 175, 55, 0.2);
-    border: 1px solid rgba(212, 175, 55, 0.3);
+    background: rgba(51, 107, 135, 0.2);
+    border: 1px solid rgba(51, 107, 135, 0.3);
     color: white;
 }
 
@@ -956,7 +1001,7 @@ button:active {
 
 /* Efecto de texto dorado brillante animado */
 .shine-text {
-    background: linear-gradient(to right, #bf953f 20%, #fcf6ba 40%, #fbf5b7 60%, #bf953f 80%);
+    background: linear-gradient(to right, #336B87 20%, #90AFC5 40%, #B4D2E0 60%, #336B87 80%);
     background-size: 200% auto;
     color: #000;
     background-clip: text;
@@ -972,9 +1017,9 @@ button:active {
 
 /* Efecto de borde pulsante para modal Acerca De */
 @keyframes gold-pulse {
-    0% { box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); border-color: rgba(212, 175, 55, 0.5); }
-    50% { box-shadow: 0 0 50px rgba(212, 175, 55, 0.6), inset 0 0 20px rgba(212, 175, 55, 0.2); border-color: rgba(212, 175, 55, 1); }
-    100% { box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); border-color: rgba(212, 175, 55, 0.5); }
+    0% { box-shadow: 0 0 20px rgba(51, 107, 135, 0.2); border-color: rgba(51, 107, 135, 0.5); }
+    50% { box-shadow: 0 0 50px rgba(51, 107, 135, 0.6), inset 0 0 20px rgba(51, 107, 135, 0.2); border-color: rgba(51, 107, 135, 1); }
+    100% { box-shadow: 0 0 20px rgba(51, 107, 135, 0.2); border-color: rgba(51, 107, 135, 0.5); }
 }
 
 .about-modal-pulse {
@@ -1028,7 +1073,7 @@ button:active {
     width: 48px;
     height: 48px;
     border-radius: 10px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 15px rgba(30, 65, 82, 0.4);
 }
 
 .pwa-text {
@@ -1062,7 +1107,7 @@ button:active {
     font-size: 0.9rem;
     cursor: pointer;
     width: auto;
-    box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+    box-shadow: 0 4px 15px rgba(51, 107, 135, 0.3);
 }
 
 .pwa-btn-cancel {

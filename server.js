@@ -8,6 +8,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// CONFIGURACIÓN DE SEGURIDAD
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin'; // Cambiar esto en producción
+
 // Servir archivos estáticos desde la carpeta 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/icons', express.static(path.join(__dirname, 'icons')));
@@ -18,6 +21,7 @@ let usuariosConectados = 0;
 const activeCartones = new Map(); // Key: ID, Value: { socketId, matrix }
 const cartonesEnJuego = new Map(); // Key: ID, Value: Matrix (Autoritativa para la partida)
 let currentGameId = Date.now().toString();
+let gameStartTime = null;
 
 // PERSISTENCIA DE GANADORES
 const WINNERS_FILE = path.join(__dirname, 'winners.json');
@@ -36,7 +40,7 @@ function saveWinner(winner) {
     const list = loadWinners();
     list.unshift(winner); // Añadir al principio
     try {
-        fs.writeFileSync(WINNERS_FILE, JSON.stringify(list, null, 2));
+        fs.writeFile(WINNERS_FILE, JSON.stringify(list, null, 2), (err) => { if(err) console.error(err); });
     } catch (e) { console.error("Error guardando ganador:", e); }
 }
 
@@ -58,7 +62,7 @@ function saveGameHistory(gameData) {
     if (history.length > 20) history = history.slice(0, 20); // Guardar últimas 20
     
     try {
-        fs.writeFileSync(GAMES_FILE, JSON.stringify(history, null, 2));
+        fs.writeFile(GAMES_FILE, JSON.stringify(history, null, 2), (err) => { if(err) console.error(err); });
     } catch (e) { console.error("Error guardando historial partidas:", e); }
 }
 
@@ -174,10 +178,15 @@ io.on('connection', (socket) => {
     // Enviamos al jugador que entra las bolas que ya salieron
     socket.emit('historial', bolasCantadas);
     socket.emit('sync-game-id', currentGameId);
+    socket.emit('sync-game-start-time', gameStartTime);
 
     // 3. Lógica de Bolas (Admin -> Servidor -> Todos)
     socket.on('nueva-bola-admin', (numero) => {
         if (!bolasCantadas.includes(numero)) {
+            if (bolasCantadas.length === 0) {
+                gameStartTime = Date.now();
+                io.emit('sync-game-start-time', gameStartTime);
+            }
             bolasCantadas.push(numero);
             io.emit('anuncio-bola', numero);
             console.log(`Bola emitida: ${numero}`);
@@ -401,9 +410,14 @@ io.on('connection', (socket) => {
     });
 
     // Evento para que un cliente se registre como admin
-    socket.on('admin-join', () => {
+    socket.on('admin-join', (token) => {
+        if (token !== ADMIN_TOKEN) {
+            console.warn(`Intento de acceso admin fallido desde ${socket.id}`);
+            socket.emit('admin-error', 'Credenciales inválidas');
+            return;
+        }
         socket.join('admins');
-        console.log(`Socket ${socket.id} se ha unido a la sala 'admins'.`);
+        console.log(`Socket ${socket.id} autenticado como ADMIN.`);
         // Enviar historial persistente al conectar
         socket.emit('historial-ganadores', loadWinners());
         emitirJugadoresListos(); // Enviar conteo actual al admin
@@ -435,9 +449,11 @@ io.on('connection', (socket) => {
         emitirJugadoresListos(); // Resetear contadores a 0 antes de que se vuelvan a registrar
 
         currentGameId = Date.now().toString();
+        gameStartTime = null;
         console.log("Reiniciando partida...");
         io.emit('limpiar-tablero', currentGameId);
         io.emit('sync-game-id', currentGameId);
+        io.emit('sync-game-start-time', null);
     });
 
     // 6. Desconexión

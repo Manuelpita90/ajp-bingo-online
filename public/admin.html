@@ -6,7 +6,7 @@
     <title>Consola del Administrador - Bingo AJP-Logic</title>
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#d4af37">
+    <meta name="theme-color" content="#336B87">
     <link rel="apple-touch-icon" href="./icons/ajp.png">
 </head>
 
@@ -24,9 +24,28 @@
                 <div id="display-ball">--</div>
             </div>
             <button class="btn-extract" onclick="extraerBola()">SACAR BOLA</button>
-            <br>
-            <button class="btn-reset" onclick="reiniciarJuego()">Reiniciar Partida</button>
             <p id="ball-text">¡Mucha suerte a todos!</p>
+            
+            <div class="bottom-controls-wrapper">
+                <button class="btn-reset" onclick="reiniciarJuego()">⚠️ REINICIAR PARTIDA</button>
+                
+                <button class="btn-toggle-controls" onclick="toggleBottomControls()" style="background:transparent; border:none; color:var(--text-muted); width:100%; padding:10px; cursor:pointer; font-size:0.9rem; display:flex; align-items:center; justify-content:center; gap:5px; text-transform:uppercase; letter-spacing:1px;">
+                    ⚙️ Opciones Avanzadas <span id="controls-arrow" style="display:inline-block; transition:transform 0.3s;">▼</span>
+                </button>
+
+                <div id="controls-content" class="controls-content">
+                    <button id="btn-auto" class="btn-extract" onclick="toggleAutomatico()" style="margin-top: 10px; background: linear-gradient(135deg, #1F4558, #143D59);">🔄 AUTOMÁTICO</button>
+                    
+                    <div id="auto-speed-control" style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:0.85rem; margin-bottom:5px;">
+                            <span>Velocidad: <span id="speed-display" style="color:var(--gold-solid); font-weight:bold;">4s</span></span>
+                        </div>
+                        <input id="speed-slider" type="range" min="2" max="10" step="0.5" value="4" style="width:100%; cursor:pointer;" oninput="updateAutoSpeed(this.value)">
+                    </div>
+
+                    <button id="btn-voice" class="btn-outline" onclick="toggleVoice()" style="margin-top: 10px; border-color: var(--gold-solid); color: var(--gold-solid);">🔊 VOZ: ACTIVADA</button>
+                </div>
+            </div>
         </div>
 
         <h3>Historial de Bolas (1-75)</h3>
