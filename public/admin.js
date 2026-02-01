@@ -31,10 +31,15 @@ let gameTimerInterval = null;
 let autoPlayInterval = null;
 let autoPlaySpeed = 4000;
 let voiceEnabled = true;
+let currentPattern = 'linea'; // Estado local del patrón
 
 socket.on('admin-error', (msg) => {
     sessionStorage.removeItem('admin-token');
     mostrarLoginAdmin("Credenciales inválidas");
+});
+
+socket.on('admin-action-error', (msg) => {
+    alert("⛔ ACCIÓN DENEGADA: " + msg);
 });
 
 // Pre-cargar audios para rendimiento
@@ -49,8 +54,8 @@ audioAlarm.volume = 0.3; // Volumen suave para no aturdir
 function initTablero() {
     const board = document.getElementById('master-board');
     if (!board) return;
-    
-    board.innerHTML = ''; 
+
+    board.innerHTML = '';
     for (let i = 1; i <= totalBolas; i++) {
         let slot = document.createElement('div');
         slot.id = `slot-${i}`;
@@ -113,7 +118,7 @@ function initTablero() {
 
     // PREPARAR CONTENEDOR EXTERNO (Debajo de la interfaz principal)
     let externalContainer = document.getElementById('admin-external-controls');
-    
+
     if (!externalContainer && adminContainer) {
         externalContainer = document.createElement('div');
         externalContainer.id = 'admin-external-controls';
@@ -123,11 +128,11 @@ function initTablero() {
         externalContainer.style.flexDirection = 'column';
         externalContainer.style.gap = '10px';
         externalContainer.style.marginTop = '20px';
-        
+
         // Insertar después del contenedor principal
         adminContainer.parentNode.insertBefore(externalContainer, adminContainer.nextSibling);
     }
-    
+
     // Si no hay admin-container, usamos body (fallback)
     const targetContainer = externalContainer || document.body;
 
@@ -137,7 +142,7 @@ function initTablero() {
         msgSection.id = 'admin-messaging';
         msgSection.className = 'winners-section'; // Reutilizamos estilo de contenedor
         msgSection.style.marginTop = '0';
-        
+
         msgSection.innerHTML = `
             <div class="winners-title"><span>📢 Enviar Mensaje Global</span></div>
             <div style="display:flex; gap:10px;">
@@ -146,6 +151,37 @@ function initTablero() {
             </div>
         `;
         targetContainer.appendChild(msgSection);
+    }
+
+    // INYECTAR CONFIGURACIÓN DE PATRÓN (MODO DE JUEGO)
+    if (!document.getElementById('pattern-config')) {
+        const configSection = document.createElement('div');
+        configSection.id = 'pattern-config';
+        configSection.className = 'winners-section';
+        configSection.style.marginTop = '0';
+
+        configSection.innerHTML = `
+            <div class="winners-title"><span>🎯 Modo de Juego</span></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <select id="pattern-select" class="admin-input" style="background:rgba(0,0,0,0.5);">
+                    <option value="linea">1 Línea (Normal)</option>
+                    <option value="diagonal">Diagonal</option>
+                    <option value="full">Cartón Lleno</option>
+                    <option value="corners">4 Esquinas</option>
+                    <option value="letterX">Letra X</option>
+                    <option value="cross">Cruz (+)</option>
+                </select>
+                <button onclick="cambiarPatronJuego()" class="btn-small" style="background:var(--gold-gradient); color:black;">APLICAR</button>
+            </div>
+        `;
+        targetContainer.appendChild(configSection);
+
+        // Sincronizar selector con el estado actual
+        const select = document.getElementById('pattern-select');
+        if (select) select.value = currentPattern;
+
+        // Bloquear si el juego ya comenzó
+        if (bolasExtraidas.length > 0) togglePatternConfig(true);
     }
 
     // --- BOTÓN DE SOLICITUDES ---
@@ -167,16 +203,16 @@ function initTablero() {
         const storage = document.createElement('div');
         storage.id = 'requests-storage';
         storage.style.display = 'none';
-        
+
         const list = document.createElement('div');
         list.id = 'requests-list';
         list.className = 'winners-list';
-        
+
         const emptyMsg = document.createElement('div');
         emptyMsg.id = 'empty-requests-msg';
         emptyMsg.style.cssText = 'color:var(--text-muted); font-style:italic; font-size:0.9rem; text-align:center; padding:10px;';
         emptyMsg.textContent = 'No hay solicitudes pendientes.';
-        
+
         list.appendChild(emptyMsg);
         storage.appendChild(list);
         document.body.appendChild(storage);
@@ -299,7 +335,7 @@ function actualizarConsolaAdmin(bola) {
     const slot = document.getElementById(`slot-${bola}`);
 
     display.textContent = bola;
-    
+
     if (slot) {
         slot.classList.add('called');
     }
@@ -337,7 +373,7 @@ function cantarBolaAdmin(numero) {
 }
 
 // --- CONTROL DE VOZ ---
-window.toggleVoice = function() {
+window.toggleVoice = function () {
     voiceEnabled = !voiceEnabled;
     const btn = document.getElementById('btn-voice');
     if (btn) {
@@ -356,30 +392,30 @@ window.toggleVoice = function() {
 };
 
 // --- CONTROL DE COLAPSO ---
-window.toggleBottomControls = function() {
+window.toggleBottomControls = function () {
     const content = document.getElementById('controls-content');
     const arrow = document.getElementById('controls-arrow');
-    
+
     if (content) {
         if (content.classList.contains('expanded')) {
             content.classList.remove('expanded');
-            if(arrow) arrow.style.transform = 'rotate(0deg)';
+            if (arrow) arrow.style.transform = 'rotate(0deg)';
         } else {
             content.classList.add('expanded');
-            if(arrow) arrow.style.transform = 'rotate(180deg)';
+            if (arrow) arrow.style.transform = 'rotate(180deg)';
         }
     }
 };
 
 // --- CONTROL DE VELOCIDAD ---
-window.updateAutoSpeed = function(val) {
+window.updateAutoSpeed = function (val) {
     autoPlaySpeed = val * 1000;
     const display = document.getElementById('speed-display');
     const slider = document.getElementById('speed-slider');
 
     // Calcular color: 2s = Verde (120), 10s = Rojo (0)
     // Fórmula de interpolación lineal
-    const hue = 120 - ((val - 2) / 8) * 120; 
+    const hue = 120 - ((val - 2) / 8) * 120;
     const color = `hsl(${hue}, 100%, 50%)`;
 
     if (display) {
@@ -392,7 +428,7 @@ window.updateAutoSpeed = function(val) {
         slider.style.accentColor = color;
         slider.style.boxShadow = `0 0 15px ${color.replace('50%', '20%')}`; // Resplandor suave
     }
-    
+
     // Si está corriendo, reiniciar intervalo para aplicar cambio inmediato
     if (autoPlayInterval) {
         clearInterval(autoPlayInterval);
@@ -407,9 +443,9 @@ window.updateAutoSpeed = function(val) {
 };
 
 // --- MODO AUTOMÁTICO ---
-window.toggleAutomatico = function() {
+window.toggleAutomatico = function () {
     const btn = document.getElementById('btn-auto');
-    
+
     if (autoPlayInterval) {
         detenerAutomatico();
     } else {
@@ -427,9 +463,9 @@ window.toggleAutomatico = function() {
             btn.style.background = "var(--danger)";
             btn.classList.add('pulse-animation');
         }
-        
+
         extraerBola(); // Primera bola inmediata
-        
+
         autoPlayInterval = setInterval(() => {
             if (juegoPausado || bolasExtraidas.length >= totalBolas) {
                 detenerAutomatico();
@@ -440,7 +476,7 @@ window.toggleAutomatico = function() {
     }
 };
 
-window.detenerAutomatico = function() {
+window.detenerAutomatico = function () {
     if (autoPlayInterval) {
         clearInterval(autoPlayInterval);
         autoPlayInterval = null;
@@ -475,6 +511,28 @@ socket.on('cartones-en-juego', (cantidad) => {
     }
 });
 
+// Sincronización en tiempo real de bolas cantadas (por si hay otro admin o reconexión)
+socket.on('anuncio-bola', (numero) => {
+    if (!bolasExtraidas.includes(numero)) {
+        bolasExtraidas.push(numero);
+        actualizarConsolaAdmin(numero);
+        // Opcional: cantarBolaAdmin(numero); // Si queremos que todos los admins escuchen la voz
+        togglePatternConfig(true);
+    }
+});
+
+socket.on('sync-patron', (patron) => {
+    currentPattern = patron;
+    const select = document.getElementById('pattern-select');
+    if (select) select.value = patron;
+});
+
+socket.on('cambio-patron', (patron) => {
+    currentPattern = patron;
+    const select = document.getElementById('pattern-select');
+    if (select) select.value = patron;
+});
+
 // ESCUCHAR CUANDO ALGUIEN CANTA BINGO
 socket.on('notificar-bingo', (data) => {
     // Mostrar estado de la reclamación (válido / inválido / pendiente)
@@ -489,7 +547,7 @@ socket.on('notificar-bingo', (data) => {
         }
         // Visualizar automáticamente el cartón ganador en pantalla
         verCartonEnModal(data);
-        
+
         // Activar alerta visual en botón de reinicio
         const btnReset = document.querySelector('.btn-reset');
         if (btnReset) {
@@ -510,7 +568,7 @@ socket.on('historial-ganadores', (lista) => {
 
     // Actualizar memoria local
     currentWinnersList = lista || [];
-    
+
     // Si hay ganadores al conectar, marcar el botón de reinicio
     if (currentWinnersList.length > 0) {
         const btnReset = document.querySelector('.btn-reset');
@@ -545,9 +603,9 @@ socket.on('limpiar-tablero', (newId) => {
     bolasExtraidas = [];
     initTablero();
     document.getElementById('display-ball').textContent = "--";
-    
+
     document.getElementById('ball-text').textContent = "¡Mucha suerte a todos!";
-    
+
     // Limpiar lista de ganadores
     currentWinnersList = [];
 
@@ -563,7 +621,7 @@ socket.on('limpiar-tablero', (newId) => {
         btn.style.background = "";
         btn.style.boxShadow = "";
     }
-    
+
     // Quitar alerta del botón de reinicio
     const btnReset = document.querySelector('.btn-reset');
     if (btnReset) {
@@ -571,8 +629,9 @@ socket.on('limpiar-tablero', (newId) => {
         audioAlarm.pause();
         audioAlarm.currentTime = 0;
     }
-    
+
     updateTimerDisplay(); // Mostrar 00:00
+    togglePatternConfig(false);
 });
 
 // Sincronización por si el admin refresca la página
@@ -584,6 +643,7 @@ socket.on('historial', (bolas) => {
     });
     if (bolas.length > 0) {
         actualizarConsolaAdmin(bolas[bolas.length - 1]);
+        togglePatternConfig(true);
     }
 });
 
@@ -594,15 +654,15 @@ function mostrarNotificacionAdmin(data) {
 
     const notif = document.createElement('div');
     const isValid = data.valid;
-    
+
     notif.className = `admin-notification ${isValid ? 'valid' : 'invalid'}`;
-    
+
     const icon = isValid ? '🎉' : '⚠️';
     const title = isValid ? 'BINGO VÁLIDO' : 'RECLAMO INVÁLIDO';
     const colorTitle = isValid ? 'var(--success)' : 'var(--danger)';
-    
+
     const audio = isValid ? audioWin : audioFail;
-    if(audio) {
+    if (audio) {
         audio.currentTime = 0;
         audio.play().catch(e => console.warn("Audio bloqueado:", e));
     }
@@ -613,9 +673,9 @@ function mostrarNotificacionAdmin(data) {
         botonPausa = `<button onclick="event.stopPropagation(); window.pausarJuego();" style="margin-top:8px; padding:6px; width:100%; background:var(--dark-bg); color:var(--danger); border:1px solid var(--danger); border-radius:6px; font-weight:bold; cursor:pointer;">🛑 PAUSAR JUEGO</button>`;
     }
 
-    const nombreDisplay = data.nombre ? `${data.nombre}` : `ID: ${data.id.substr(0,4)}`;
-    const winningNumsDisplay = data.winningNumbers && data.winningNumbers.length > 0 
-        ? data.winningNumbers.join(', ') 
+    const nombreDisplay = data.nombre ? `${data.nombre}` : `ID: ${data.id.substr(0, 4)}`;
+    const winningNumsDisplay = data.winningNumbers && data.winningNumbers.length > 0
+        ? data.winningNumbers.join(', ')
         : (data.numeros ? data.numeros.join(', ') : '');
 
     notif.innerHTML = `
@@ -660,10 +720,10 @@ function mostrarNotificacionAdmin(data) {
 }
 
 // Función global para pausar desde la notificación
-window.pausarJuego = function(automatico = false) {
+window.pausarJuego = function (automatico = false) {
     detenerAutomatico();
     juegoPausado = true;
-    
+
     // Feedback visual en el botón principal
     const btn = document.querySelector('.btn-extract');
     if (btn) {
@@ -681,7 +741,7 @@ window.pausarJuego = function(automatico = false) {
 function agregarGanador(data) {
     // Agregar al principio de la lista en memoria
     currentWinnersList.unshift(data);
-    
+
     // Si el modal de ganadores está abierto, refrescarlo
     const modal = document.getElementById('admin-modal');
     const title = document.getElementById('admin-modal-title');
@@ -702,7 +762,7 @@ function toggleFullScreen() {
 }
 
 // 8.1 Cerrar Sesión
-window.cerrarSesionAdmin = function() {
+window.cerrarSesionAdmin = function () {
     if (confirm("¿Estás seguro de que deseas cerrar sesión?")) {
         sessionStorage.removeItem('admin-token');
         window.location.reload();
@@ -710,63 +770,88 @@ window.cerrarSesionAdmin = function() {
 };
 
 // 9. Mensajería Global
-window.enviarMensajeGlobal = function() {
+window.enviarMensajeGlobal = function () {
     const input = document.getElementById('admin-msg-input');
     const msg = input.value.trim();
-    
+
     if (msg) {
         if (confirm(`¿Enviar mensaje a TODOS los jugadores?\n\n"${msg}"`)) {
             console.log("Enviando mensaje global:", msg);
             socket.emit('admin-mensaje', msg);
             input.value = '';
-            
+
             // Feedback visual para el admin (Confirmación de envío)
-            mostrarNotificacionAdmin({ 
-                valid: true, 
-                id: 'ADMIN', 
+            mostrarNotificacionAdmin({
+                valid: true,
+                id: 'ADMIN',
                 cartonId: 'GLOBAL',
-                numeros: [], 
-                reason: 'Mensaje enviado: ' + msg 
+                numeros: [],
+                reason: 'Mensaje enviado: ' + msg
             });
         }
     }
 }
 
+// 9.1 Cambiar Patrón de Juego
+window.cambiarPatronJuego = function () {
+    const select = document.getElementById('pattern-select');
+    const patron = select.value;
+    const texto = select.options[select.selectedIndex].text;
+    if (confirm(`¿Cambiar el modo de victoria a: ${texto}?`)) {
+        socket.emit('admin-cambiar-patron', patron);
+    }
+};
+
+function togglePatternConfig(disabled) {
+    const select = document.getElementById('pattern-select');
+    const btn = document.querySelector('#pattern-config button');
+    if (select) {
+        select.disabled = disabled;
+        select.style.opacity = disabled ? '0.5' : '1';
+        select.style.cursor = disabled ? 'not-allowed' : 'default';
+    }
+    if (btn) {
+        btn.disabled = disabled;
+        btn.style.opacity = disabled ? '0.5' : '1';
+        btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    }
+}
+
 // 10. Ver Detalles de Cartones
-window.verDetallesCartones = function() {
+window.verDetallesCartones = function () {
     socket.emit('admin-solicitar-detalles-cartones');
 };
 
 socket.on('admin-detalles-cartones', (lista) => {
     safeguardRequestsList();
-    const html = lista.length > 0 
+    const html = lista.length > 0
         ? `<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
             ${lista.map(id => `<span style="background: rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--glass-border); font-family: monospace; font-size: 1.1em; color: var(--gold-solid);">${id}</span>`).join('')}
            </div>`
         : '<p style="color: var(--text-muted);">No hay cartones activos en este momento.</p>';
-    
+
     const modal = document.getElementById('admin-modal');
     document.getElementById('admin-modal-title').textContent = `🎫 CARTONES ACTIVOS (${lista.length})`;
     document.getElementById('admin-modal-body').innerHTML = html;
     modal.style.display = 'flex';
 });
 
-window.verDetallesJugadores = function() {
+window.verDetallesJugadores = function () {
     viewingPlayersList = true;
     socket.emit('admin-solicitar-detalles-jugadores');
 };
 
 socket.on('admin-lista-jugadores', (lista) => {
-    safeguardRequestsList();
     if (!viewingPlayersList) return;
+    safeguardRequestsList();
 
-    const html = lista.length > 0 
+    const html = lista.length > 0
         ? `<div style="display:flex; flex-direction:column; gap:10px;">
             ${lista.map(p => `
                 <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; border-left:3px solid var(--gold-solid);">
                     <div>
                         <div style="font-weight:bold; color:white;">${p.nombre}</div>
-                        <div style="font-size:0.8em; color:var(--text-muted);">ID: ${p.id.substr(0,4)}</div>
+                        <div style="font-size:0.8em; color:var(--text-muted);">ID: ${p.id.substr(0, 4)}</div>
                     </div>
                     <div style="text-align:right;">
                         <div style="font-size:1.2em; font-weight:bold; color:var(--gold-solid);">${p.cartones} <span style="font-size:0.6em; color:var(--text-muted);">CARTONES</span></div>
@@ -783,14 +868,14 @@ socket.on('admin-lista-jugadores', (lista) => {
     modal.style.display = 'flex';
 });
 
-window.cerrarModalAdmin = function() {
+window.cerrarModalAdmin = function () {
     safeguardRequestsList();
     viewingPlayersList = false;
     document.getElementById('admin-modal').style.display = 'none';
 };
 
 // 12. Ver Historial de Ganadores (Estilo Modal)
-window.verHistorialGanadores = function() {
+window.verHistorialGanadores = function () {
     safeguardRequestsList();
     let html = '';
     if (!currentWinnersList || currentWinnersList.length === 0) {
@@ -825,7 +910,7 @@ window.verHistorialGanadores = function() {
 };
 
 // 11. Ver Historial de Partidas
-window.verHistorialPartidas = function() {
+window.verHistorialPartidas = function () {
     socket.emit('admin-solicitar-historial-partidas');
 };
 
@@ -846,16 +931,16 @@ socket.on('admin-historial-partidas', (history) => {
                     <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px;">
                         🏆 ${game.winnerCount} Ganadores
                     </div>
-                    ${game.winners.length > 0 ? 
-                        `<div style="margin-top:5px; font-size:0.85em; padding-top:5px; border-top:1px solid rgba(255,255,255,0.1); color:var(--text-main); opacity:0.8;">
-                            ${game.winners.map(w => `<div>• ID ${w.id.substr(0,4)} (🎫 ${w.cartonId})</div>`).join('')}
-                         </div>` 
-                        : ''}
+                    ${game.winners.length > 0 ?
+                    `<div style="margin-top:5px; font-size:0.85em; padding-top:5px; border-top:1px solid rgba(255,255,255,0.1); color:var(--text-main); opacity:0.8;">
+                            ${game.winners.map(w => `<div>• ID ${w.id.substr(0, 4)} (🎫 ${w.cartonId})</div>`).join('')}
+                         </div>`
+                    : ''}
                 </div>
             `;
         }).join('');
     }
-    
+
     const modal = document.getElementById('admin-modal');
     document.getElementById('admin-modal-title').textContent = `📜 ÚLTIMAS PARTIDAS`;
     document.getElementById('admin-modal-body').innerHTML = html;
@@ -866,13 +951,13 @@ socket.on('admin-historial-partidas', (history) => {
 socket.on('admin-nueva-solicitud', (data) => {
     const list = document.getElementById('requests-list');
     const emptyMsg = document.getElementById('empty-requests-msg');
-    
+
     if (emptyMsg) emptyMsg.remove();
-    
+
     // Reproducir sonido de notificación
     if (audioRequest) {
         audioRequest.currentTime = 0;
-        audioRequest.play().catch(e=>{});
+        audioRequest.play().catch(e => { });
     }
 
     const item = document.createElement('div');
@@ -887,7 +972,7 @@ socket.on('admin-nueva-solicitud', (data) => {
         <div style="width:100%; display:flex; justify-content:space-between; align-items:center;">
             <div>
                 <strong style="color:white; font-size:1.1em">${data.nombre}</strong>
-                <div style="font-size:0.85em; color:var(--text-muted)">ID: ${data.socketId.substr(0,4)}</div>
+                <div style="font-size:0.85em; color:var(--text-muted)">ID: ${data.socketId.substr(0, 4)}</div>
                 <div style="font-size:0.85em; color:var(--gold-solid); margin-top:4px; line-height:1.2;">
                     🏦 ${data.banco || 'N/A'} <br> #️⃣ Ref: ${data.referencia || 'N/A'}
                 </div>
@@ -906,14 +991,14 @@ socket.on('admin-nueva-solicitud', (data) => {
     updateRequestsButton();
 });
 
-window.aprobarSolicitud = function(socketId, cantidad, nombre) {
+window.aprobarSolicitud = function (socketId, cantidad, nombre) {
     socket.emit('admin-aprobar-solicitud', { socketId, cantidad });
     const item = document.getElementById(`req-${socketId}`);
     if (item) item.remove();
     updateRequestsButton();
 };
 
-window.rechazarSolicitud = function(socketId) {
+window.rechazarSolicitud = function (socketId) {
     if (confirm("¿Rechazar solicitud?")) {
         socket.emit('admin-rechazar-solicitud', { socketId, motivo: "Denegado por el administrador. Favor revise sus datos." });
         const item = document.getElementById(`req-${socketId}`);
@@ -926,13 +1011,13 @@ function updateRequestsButton() {
     const list = document.getElementById('requests-list');
     const btn = document.getElementById('btn-requests');
     const countSpan = document.getElementById('btn-req-count');
-    
+
     if (!list || !btn) return;
-    
+
     const count = list.querySelectorAll('div[id^="req-"]').length;
-    
+
     if (countSpan) countSpan.textContent = `(${count})`;
-    
+
     if (count > 0) {
         btn.style.backgroundColor = 'var(--danger)';
         btn.style.borderColor = 'var(--danger)';
@@ -1015,7 +1100,7 @@ function enviarMensajeChat() {
     input.value = '';
 }
 
-window.borrarChat = function() {
+window.borrarChat = function () {
     if (confirm("¿Estás seguro de que quieres borrar el historial del chat para TODOS los usuarios?")) {
         socket.emit('admin-clear-chat');
     }
@@ -1034,7 +1119,7 @@ socket.on('chat-nuevo-mensaje', (data) => {
     if (!data.esAdmin) {
         const audio = new Audio('sounds/pop.mp3');
         audio.volume = 0.4;
-        audio.play().catch(e => {});
+        audio.play().catch(e => { });
 
         // Animación del botón si el chat está cerrado
         const widget = document.getElementById('chat-widget');
@@ -1055,18 +1140,18 @@ socket.on('chat-nuevo-mensaje', (data) => {
     }
 
     const div = document.createElement('div');
-    
+
     let clase = 'others';
     if (data.esAdmin) {
         clase = 'mine'; // Asumimos que soy yo (el admin)
     }
-    
+
     div.className = `chat-msg ${clase}`;
     // Si es admin, mostrar en rojo/distinto
-    
-    const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+    const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     div.innerHTML = `<strong>${data.usuario}:</strong> ${data.texto}<div class="chat-time">${time}</div>`;
-    
+
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 });
@@ -1076,9 +1161,9 @@ function verCartonEnModal(data) {
     const modal = document.getElementById('admin-modal');
     const title = document.getElementById('admin-modal-title');
     const body = document.getElementById('admin-modal-body');
-    
+
     title.textContent = `CARTÓN ${data.cartonId}`;
-    
+
     if (!data.carton || !Array.isArray(data.carton)) {
         body.innerHTML = "<p style='text-align:center; color:var(--text-muted);'>No hay datos visuales del cartón.</p>";
         modal.style.display = 'flex';
@@ -1089,15 +1174,15 @@ function verCartonEnModal(data) {
     const winners = new Set((data.winningNumbers || []).map(String));
 
     let gridHtml = '<div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; max-width:350px; margin:0 auto; background:rgba(0,0,0,0.3); padding:15px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">';
-    
+
     // Headers
-    ['B','I','N','G','O'].forEach(l => {
+    ['B', 'I', 'N', 'G', 'O'].forEach(l => {
         gridHtml += `<div style="text-align:center; font-weight:800; color:var(--gold-solid); padding-bottom:5px; font-size:1.2em;">${l}</div>`;
     });
 
     // Rows
-    for(let r=0; r<5; r++) {
-        for(let c=0; c<5; c++) {
+    for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
             const val = data.carton[r][c];
             let style = 'background:rgba(255,255,255,0.05); color:white; border:1px solid rgba(255,255,255,0.05);';
             let content = val;
@@ -1126,7 +1211,7 @@ function verCartonEnModal(data) {
         </div>
         ${gridHtml}
         <div style="margin-top:20px; text-align:center; padding-top:15px; border-top:1px solid rgba(255,255,255,0.1);">
-            <div style="margin-bottom:5px; font-size:1.1em;">Estado: <strong style="color:${data.valid?'var(--success)':'var(--danger)'}">${data.valid?'VÁLIDO':'INVÁLIDO'}</strong></div>
+            <div style="margin-bottom:5px; font-size:1.1em;">Estado: <strong style="color:${data.valid ? 'var(--success)' : 'var(--danger)'}">${data.valid ? 'VÁLIDO' : 'INVÁLIDO'}</strong></div>
             <div style="font-size:0.9em; opacity:0.8;">${data.reason || ''}</div>
         </div>
     `;
@@ -1135,7 +1220,7 @@ function verCartonEnModal(data) {
     modal.style.display = 'flex';
 }
 
-window.verSolicitudesEnModal = function() {
+window.verSolicitudesEnModal = function () {
     safeguardRequestsList();
     const list = document.getElementById('requests-list');
     const modal = document.getElementById('admin-modal');
@@ -1146,7 +1231,7 @@ window.verSolicitudesEnModal = function() {
 
     list.style.maxHeight = 'none';
     title.textContent = "📩 SOLICITUDES PENDIENTES";
-    body.innerHTML = ''; 
+    body.innerHTML = '';
     body.appendChild(list);
     modal.style.display = 'flex';
 };
@@ -1174,7 +1259,7 @@ if ('serviceWorker' in navigator) {
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    
+
     // Mostrar Banner si no ha sido descartado previamente
     if (!localStorage.getItem('pwa-banner-dismissed')) {
         mostrarBannerPWA();
@@ -1205,27 +1290,27 @@ function mostrarBannerPWA() {
         </div>
     `;
     document.body.appendChild(banner);
-    
+
     // Animación de entrada
     requestAnimationFrame(() => {
         banner.classList.add('visible');
     });
 }
 
-window.cerrarBannerPWA = function() {
+window.cerrarBannerPWA = function () {
     const banner = document.getElementById('pwa-install-banner');
     if (banner) {
         banner.classList.remove('visible');
         setTimeout(() => banner.remove(), 300);
     }
     localStorage.setItem('pwa-banner-dismissed', 'true');
-    
+
     // Mostrar botón flotante pequeño por si cambia de opinión
     const btn = document.getElementById('btn-install-pwa');
     if (btn) btn.style.display = 'flex';
 };
 
-window.instalarPWA = function() {
+window.instalarPWA = function () {
     // Cerrar banner si está abierto
     const banner = document.getElementById('pwa-install-banner');
     if (banner) {
@@ -1254,7 +1339,7 @@ function mostrarLoginAdmin(errorMsg = "") {
         modal.className = 'modal-overlay';
         modal.style.zIndex = '20000';
         modal.style.backdropFilter = 'blur(15px)';
-        
+
         modal.innerHTML = `
             <div class="modal-content" style="width: 400px; text-align: center; border-color: var(--gold-solid); animation: smoothLoginEntry 0.6s cubic-bezier(0.22, 1, 0.36, 1);">
                 <img src="./icons/ajp.png" alt="Logo AJP" style="width: 80px; margin-bottom: 15px; filter: drop-shadow(0 0 15px rgba(51, 107, 135, 0.5));">
@@ -1281,7 +1366,7 @@ function mostrarLoginAdmin(errorMsg = "") {
         const btn = document.getElementById('btn-login-submit');
         if (btn) { btn.textContent = "ENTRAR"; }
     }
-    
+
     if (errorMsg) {
         const content = modal.querySelector('.modal-content');
         if (content) {
@@ -1291,36 +1376,36 @@ function mostrarLoginAdmin(errorMsg = "") {
             setTimeout(() => content.classList.remove('error-shake'), 500);
         }
     }
-    
+
     setTimeout(() => {
         const input = document.getElementById('admin-password-input');
-        if (input) { 
-            input.value = ''; 
-            input.focus(); 
+        if (input) {
+            input.value = '';
+            input.focus();
             const btn = document.getElementById('btn-login-submit');
             if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
         }
     }, 100);
 }
 
-window.submitLogin = function() {
+window.submitLogin = function () {
     const input = document.getElementById('admin-password-input');
     if (!input) return;
     const token = input.value.trim();
     if (token) {
         sessionStorage.setItem('admin-token', token);
         socket.emit('admin-join', token);
-        
+
         const btn = document.getElementById('btn-login-submit');
         if (btn) { btn.textContent = "VERIFICANDO..."; btn.disabled = true; btn.style.opacity = 0.7; }
     }
 };
 
-window.togglePasswordVisibility = function() {
+window.togglePasswordVisibility = function () {
     const input = document.getElementById('admin-password-input');
     const icon = document.getElementById('toggle-password');
     if (!input || !icon) return;
-    
+
     if (input.type === "password") {
         input.type = "text";
         icon.textContent = "🙈"; // Icono de ocultar
@@ -1342,21 +1427,21 @@ function startTimer() {
 function updateTimerDisplay() {
     const el = document.getElementById('game-timer');
     if (!el) return;
-    
+
     if (!gameStartTime) {
         el.textContent = "00:00";
         return;
     }
-    
+
     const diff = Math.floor((Date.now() - gameStartTime) / 1000);
     if (diff < 0) return; // Evitar negativos si el reloj local está desajustado
 
     const h = Math.floor(diff / 3600);
     const m = Math.floor((diff % 3600) / 60);
     const s = diff % 60;
-    
-    const txt = (h > 0 ? h + ':' : '') + 
-                (m < 10 ? '0' : '') + m + ':' + 
-                (s < 10 ? '0' : '') + s;
+
+    const txt = (h > 0 ? h + ':' : '') +
+        (m < 10 ? '0' : '') + m + ':' +
+        (s < 10 ? '0' : '') + s;
     el.textContent = txt;
 }

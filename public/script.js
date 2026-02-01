@@ -10,23 +10,43 @@ const socket = io(isGitHubPages ? 'https://ajp-bingo-online.onrender.com' : unde
 let historialBolas = [];
 let juegoIniciado = false;
 let numerosCantados = new Set(); // Registro de bolas válidas para marcar
+let estadoSincronizado = false;
+let esperandoSolicitud = false;
+let currentPattern = 'linea'; // Patrón actual
+let cartonesSeleccionadosTemp = new Set(); // Para el modal de selección
 
 // 1. CARGA INICIAL: Revisa si hay una partida en curso en el navegador
 function cargarJuego() {
     // Intentar cargar array de cartones
-    let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones'));
+    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
 
     // Migración: Si existe el formato antiguo (un solo cartón), convertirlo
-    if (!cartones && sessionStorage.getItem('bingo-ajp-carton')) {
-        const oldData = JSON.parse(sessionStorage.getItem('bingo-ajp-carton'));
-        const oldId = sessionStorage.getItem('bingo-ajp-carton-id') || generarIdAleatorio();
+    if (!cartones && localStorage.getItem('bingo-ajp-carton')) {
+        const oldData = JSON.parse(localStorage.getItem('bingo-ajp-carton'));
+        const oldId = localStorage.getItem('bingo-ajp-carton-id') || generarIdAleatorio();
         cartones = [{ id: oldId, data: oldData }];
-        sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
+        localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
     }
 
     if (!cartones || cartones.length === 0) {
-        // MODIFICADO: En lugar de crear automáticamente, pedir solicitud
-        mostrarModalSolicitud();
+        // NUEVO: Recuperar estado de selección pendiente (Persistencia)
+        const pendingSelection = localStorage.getItem('bingo-pending-selection');
+        if (pendingSelection) {
+            mostrarModalSeleccionCartones(parseInt(pendingSelection));
+            initChat();
+            return;
+        }
+
+        // MODIFICADO: Verificar estado del juego antes de mostrar solicitud
+        if (estadoSincronizado) {
+            if (juegoIniciado) {
+                mostrarModalSalaEspera();
+            } else {
+                mostrarModalSolicitud();
+            }
+        } else {
+            esperandoSolicitud = true;
+        }
     } else {
         // Registrar IDs en el servidor y renderizar
         cartones.forEach(c => registrarIdEnServidor(c));
@@ -41,7 +61,7 @@ function generarIdAleatorio() {
         return '#' + crypto.randomUUID().split('-')[0].toUpperCase();
     }
     // Fallback mejorado
-    return '#' + Math.floor(100000 + Math.random() * 900000); 
+    return '#' + Math.floor(100000 + Math.random() * 900000);
 }
 
 function generarIdUnico() {
@@ -58,10 +78,10 @@ function registrarIdEnServidor(cartonObj) {
             console.log(`ID ${id} registrado correctamente.`);
         } else {
             console.warn(`ID ${id} ocupado.`);
-            
+
             // MANEJO DE SALA DE ESPERA
             if (response && response.reason === 'GAME_IN_PROGRESS') {
-                mostrarModal("⏳ SALA DE ESPERA", "La partida ya ha comenzado. Podrás unirte en la siguiente ronda.", "info");
+                mostrarModalSalaEspera();
                 return;
             }
 
@@ -69,21 +89,32 @@ function registrarIdEnServidor(cartonObj) {
             if (response && response.reason === 'INVALID_MATRIX_INTEGRITY') {
                 mostrarModal("⛔ ERROR DE INTEGRIDAD", "Se ha detectado una modificación no autorizada en tu cartón. Por seguridad, este cartón será eliminado.", "error");
                 // Eliminar cartón corrupto del storage
-                let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+                let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
                 const nuevosCartones = cartones.filter(c => c.id !== id);
-                sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
+                localStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
                 setTimeout(() => location.reload(), 3000);
+                return;
+            }
+
+            // MANEJO DE LÍMITE DE CARTONES (Servidor)
+            if (response && response.reason === 'MAX_CARDS_REACHED') {
+                mostrarModal("⛔ LÍMITE EXCEDIDO", "El servidor ha bloqueado este cartón porque ya tienes el máximo de 4 activos.", "error");
+                // Eliminar cartón excedente del storage local
+                let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                const nuevosCartones = cartones.filter(c => c.id !== id);
+                localStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
+                renderizarCartones();
                 return;
             }
 
             // MEJORA: Si el servidor rechaza el ID al cargar (ej. colisión o sesión fantasma),
             // intentamos regenerarlo para que el usuario no juegue con un cartón inválido.
             if (confirm(`El ID ${id} ya está en uso o hubo un error de sincronización. ¿Generar nuevo ID para este cartón?`)) {
-                const cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+                const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
                 const index = cartones.findIndex(c => c.id === id);
                 if (index !== -1) {
                     cartones[index].id = generarIdAleatorio();
-                    sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
+                    localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
                     registrarIdEnServidor(cartones[index]); // Reintentar
                     renderizarCartones(); // Actualizar UI
                 }
@@ -93,14 +124,14 @@ function registrarIdEnServidor(cartonObj) {
 }
 
 function agregarNuevoCarton(render = true, callback = null) {
-    let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
-    
+    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+
     if (juegoIniciado) {
         mostrarModal("⛔ ACCIÓN DENEGADA", "No puedes agregar cartones con la partida iniciada.", 'error');
         if (callback) callback();
         return;
     }
-    
+
     if (cartones.length >= 4) {
         mostrarModal("LÍMITE ALCANZADO", "Solo puedes jugar con un máximo de 4 cartones.", "warning");
         if (callback) callback();
@@ -108,24 +139,24 @@ function agregarNuevoCarton(render = true, callback = null) {
     }
 
     const nuevoId = generarIdAleatorio();
-    const nuevoData = generarNuevoSetDeNumeros();
+    const nuevoData = generarNuevoSetDeNumeros(); // Nota: Esto es para cartones aleatorios (legacy/admin)
     const matrix = convertirA_Matriz(nuevoData);
 
     // Validar ID con servidor antes de guardar
     socket.emit('registrar-id', { id: nuevoId, matrix: matrix }, (response) => {
         if (response && response.accepted) {
-            
-            // CRÍTICO: Re-leer sessionStorage aquí para evitar condiciones de carrera
-            let cartonesActuales = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
-            
+
+            // CRÍTICO: Re-leer localStorage aquí para evitar condiciones de carrera
+            let cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+
             cartonesActuales.push({ id: nuevoId, data: nuevoData });
-            sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
-            
+            localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
+
             if (render) {
                 renderizarCartones();
                 reproducirSonido('audio-ball'); // Sonido de confirmación
             }
-            
+
             if (callback) callback();
         } else {
             agregarNuevoCarton(render, callback); // Reintentar con otro ID
@@ -138,31 +169,45 @@ function cambiarCartonIndividual(id) {
         mostrarModal("⛔ ACCIÓN DENEGADA", "El juego ya ha comenzado, no puedes cambiar el cartón.", 'error');
         return;
     }
+    mostrarModalCambioCarton(id);
+}
 
-    if (confirm("¿Deseas cambiar los números de este cartón?")) {
-        let cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
-        const index = cartones.findIndex(c => c.id === id);
-        if (index !== -1) {
-            const newData = generarNuevoSetDeNumeros();
-            cartones[index].data = newData;
-            sessionStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
-            renderizarCartones();
-            reproducirSonido('audio-ball');
-
-            // Sincronizar cambio con el servidor
-            socket.emit('actualizar-carton', { id: id, matrix: convertirA_Matriz(newData) });
-
-            // Confirmación visual
-            const wrapper = document.getElementById(`card-wrapper-${id.replace('#', '')}`);
-            if (wrapper) {
-                const overlay = document.createElement('div');
-                overlay.className = 'success-overlay';
-                overlay.innerHTML = '✔';
-                wrapper.appendChild(overlay);
-                setTimeout(() => overlay.remove(), 1500);
-            }
-        }
+// --- GENERACIÓN DETERMINISTA (Cartones Fijos 1-100) ---
+// Algoritmo PRNG simple (Mulberry32) para generar siempre los mismos números dado un ID (semilla)
+function mulberry32(a) {
+    return function () {
+        var t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
     }
+}
+
+function generarCartonFijo(idCarton) {
+    // Usamos el ID del cartón como semilla.
+    // Sumamos un offset grande para evitar patrones obvios en IDs bajos
+    const numericId = String(idCarton).replace(/\D/g, ''); // Limpiar caracteres no numéricos (#)
+    const seed = (parseInt(numericId) || 0) + 10000;
+    const rng = mulberry32(seed);
+
+    // Función auxiliar que usa nuestro RNG determinista en lugar de Math.random
+    const obtenerColumnaFija = (min, max) => {
+        let col = [];
+        while (col.length < 5) {
+            // Generar número entre min y max usando rng()
+            let n = Math.floor(rng() * (max - min + 1)) + min;
+            if (!col.includes(n)) col.push(n);
+        }
+        return col.sort((a, b) => a - b);
+    };
+
+    return {
+        B: obtenerColumnaFija(1, 15),
+        I: obtenerColumnaFija(16, 30),
+        N: obtenerColumnaFija(31, 45),
+        G: obtenerColumnaFija(46, 60),
+        O: obtenerColumnaFija(61, 75)
+    };
 }
 
 // 2. Lógica para generar los números del cartón
@@ -187,7 +232,7 @@ function obtenerNumerosColumna(min, max) {
 
 // 3. Renderizar TODOS los cartones
 function renderizarCartones() {
-    const cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
     const contenedorPrincipal = document.getElementById('cards-container');
     contenedorPrincipal.innerHTML = '';
 
@@ -195,7 +240,7 @@ function renderizarCartones() {
         const wrapper = document.createElement('div');
         wrapper.className = 'single-card-wrapper';
         wrapper.id = `card-wrapper-${cartonObj.id.replace('#', '')}`;
-        
+
         const headerRow = document.createElement('div');
         headerRow.className = 'card-header-row';
 
@@ -207,13 +252,13 @@ function renderizarCartones() {
         const controls = document.createElement('div');
         controls.style.display = 'flex';
         controls.style.alignItems = 'center';
-        
+
         const btnMini = document.createElement('button');
         btnMini.className = 'btn-mini-bingo';
         btnMini.id = `btn-bingo-${cartonObj.id.replace('#', '')}`;
         btnMini.textContent = '¡BINGO!';
         btnMini.onclick = () => reclamarBingoIndividual(cartonObj);
-        
+
         const btnChange = document.createElement('button');
         btnChange.className = 'btn-change-card';
         btnChange.innerHTML = '↻';
@@ -230,7 +275,7 @@ function renderizarCartones() {
         const grid = document.createElement('div');
         grid.className = 'bingo-grid';
         grid.innerHTML = '<div class="header">B</div><div class="header">I</div><div class="header">N</div><div class="header">G</div><div class="header">O</div>';
-        
+
         dibujarCeldas(grid, cartonObj.data);
         wrapper.appendChild(grid);
 
@@ -253,20 +298,25 @@ function dibujarCeldas(contenedor, columnas) {
             const num = columnas[letra][f];
             const celda = document.createElement('div');
             celda.classList.add('cell');
-            
+
             if (letra === 'N' && f === 2) {
                 celda.classList.add('free', 'marked');
-                
+
                 const img = document.createElement('img');
                 img.src = './icons/ajp.png';
                 img.className = 'free-img';
                 celda.appendChild(img);
             } else {
                 celda.textContent = num;
-                
+
                 // RECUPERAR ESTADO: ¿Estaba marcado antes de refrescar?
-                if (sessionStorage.getItem(`marcado-${num}`)) {
+                if (localStorage.getItem(`marcado-${num}`)) {
                     celda.classList.add('marked');
+                }
+
+                // RECUPERAR ESTADO: ¿Ha salido la bola? (Resaltar borde)
+                if (numerosCantados.has(num)) {
+                    celda.classList.add('called-highlight');
                 }
 
                 celda.onclick = () => {
@@ -282,9 +332,9 @@ function dibujarCeldas(contenedor, columnas) {
                     // Guardar estado de la marca
                     const isMarked = celda.classList.contains('marked');
                     if (celda.classList.contains('marked')) {
-                        sessionStorage.setItem(`marcado-${num}`, 'true');
+                        localStorage.setItem(`marcado-${num}`, 'true');
                     } else {
-                        sessionStorage.removeItem(`marcado-${num}`);
+                        localStorage.removeItem(`marcado-${num}`);
                     }
                     // Sincronizar visualmente con otros cartones que tengan el mismo número
                     document.querySelectorAll('.cell').forEach(c => {
@@ -309,13 +359,13 @@ function actualizarUltimasBolas(nuevoNumero) {
     if (historialBolas.length > 5) historialBolas.pop();
 
     const contenedorBolas = document.getElementById('last-calls');
-    contenedorBolas.innerHTML = ''; 
+    contenedorBolas.innerHTML = '';
 
     historialBolas.forEach((num, index) => {
         const bolaDiv = document.createElement('div');
         bolaDiv.classList.add('ball-placeholder');
         if (index === 0) bolaDiv.classList.add('active-ball');
-        
+
         // Calcular letra correspondiente
         let letra = "";
         if (num <= 15) letra = "B";
@@ -338,13 +388,13 @@ socket.on('connect', () => {
     if (disconnectModal) disconnectModal.style.display = 'none';
 
     // Re-registrar cartones al conectar o reconectar (ej. reinicio de servidor)
-    const cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones'));
+    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
     if (cartones && cartones.length > 0) {
-        cartones.forEach(c => registrarIdEnServidor(c.id));
+        cartones.forEach(c => registrarIdEnServidor(c)); // CORRECCIÓN: Enviar objeto completo (con matriz) para validar reconexión
     }
-    
+
     // Registrar nombre si existe (para que el admin lo vea en la lista)
-    const nombre = sessionStorage.getItem('player-name');
+    const nombre = localStorage.getItem('player-name');
     if (nombre) socket.emit('registrar-nombre', nombre);
 });
 
@@ -357,7 +407,7 @@ socket.on('anuncio-bola', (numero) => {
     reproducirSonido('audio-ball');
     cantarBola(numero); // Cantar letra y número en voz alta
     juegoIniciado = true;
-    
+
     // Ocultar botón de añadir cartón si existe
     const btnAdd = document.querySelector('.add-card-btn');
     if (btnAdd) btnAdd.style.display = 'none';
@@ -367,13 +417,21 @@ socket.on('anuncio-bola', (numero) => {
     document.getElementById('last-calls').style.display = 'flex';
 
     actualizarUltimasBolas(numero);
-    
+
+    // Actualizar contador en sala de espera si está visible
+    const waitingCounter = document.getElementById('waiting-ball-count');
+    if (waitingCounter) {
+        waitingCounter.textContent = numerosCantados.size;
+        waitingCounter.style.transition = "transform 0.2s";
+        waitingCounter.style.transform = "scale(1.3)";
+        setTimeout(() => waitingCounter.style.transform = "scale(1)", 200);
+    }
+
     // Resaltar en el cartón si el número coincide con la bola cantada
     const celdas = document.querySelectorAll('.cell');
     celdas.forEach(celda => {
         if (parseInt(celda.textContent) === numero) {
-            celda.style.border = "2px solid var(--gold-solid)";
-            celda.style.boxShadow = "0 0 15px rgba(51, 107, 135, 0.4)";
+            celda.classList.add('called-highlight');
         }
     });
 });
@@ -382,6 +440,17 @@ socket.on('historial', (bolas) => {
     numerosCantados = new Set(bolas); // Sincronizar lista completa al conectar
     // Verificar si el juego ya empezó para ocultar/mostrar el botón de cambio
     juegoIniciado = bolas.length > 0;
+    estadoSincronizado = true;
+
+    // Si había una solicitud pendiente de mostrar (usuario nuevo entrando)
+    if (esperandoSolicitud) {
+        esperandoSolicitud = false;
+        if (juegoIniciado) {
+            mostrarModalSalaEspera();
+        } else {
+            mostrarModalSolicitud();
+        }
+    }
 
     // Controlar visibilidad del mensaje de espera
     const msg = document.getElementById('waiting-message');
@@ -400,17 +469,29 @@ socket.on('historial', (bolas) => {
         historialBolas = []; // Limpiar para reconstruir
         ultimas.forEach(b => actualizarUltimasBolas(b));
     }
+
+    // Actualizar visualmente los cartones (por si es un refresh de página)
+    const celdas = document.querySelectorAll('.cell');
+    celdas.forEach(celda => {
+        const val = parseInt(celda.textContent);
+        if (numerosCantados.has(val)) {
+            celda.classList.add('called-highlight');
+        }
+    });
 });
 
 socket.on('limpiar-tablero', (newGameId) => {
     // Guardar nombre para no obligar a escribirlo de nuevo
-    const savedName = sessionStorage.getItem('player-name');
-    
+    const savedName = localStorage.getItem('player-name');
+    const pwaDismissed = localStorage.getItem('pwa-banner-dismissed'); // Preservar estado PWA
+
     // Cuando el admin reinicia, borramos todo rastro del juego anterior
-    sessionStorage.clear();
-    if (savedName) sessionStorage.setItem('player-name', savedName);
-    if (newGameId) sessionStorage.setItem('bingo-game-id', newGameId);
-    
+    localStorage.clear();
+    if (savedName) localStorage.setItem('player-name', savedName);
+    if (pwaDismissed) localStorage.setItem('pwa-banner-dismissed', pwaDismissed);
+    if (newGameId) localStorage.setItem('bingo-game-id', newGameId);
+
+    cerrarModal(true); // Forzar cierre de cualquier modal bloqueante (Sala de Espera) al reiniciar
     // Reiniciar estado local
     historialBolas = [];
     juegoIniciado = false;
@@ -432,19 +513,45 @@ socket.on('limpiar-tablero', (newGameId) => {
 });
 
 socket.on('sync-game-id', (serverGameId) => {
-    const localGameId = sessionStorage.getItem('bingo-game-id');
-    
+    const localGameId = localStorage.getItem('bingo-game-id');
+
     // Si hay un ID local y es distinto al del servidor -> Reinicio ocurrido mientras estaba desconectado
     if (localGameId && localGameId !== serverGameId) {
         console.log("Sincronización: Partida nueva detectada. Limpiando...");
-        const savedName = sessionStorage.getItem('player-name');
-        sessionStorage.clear();
-        if (savedName) sessionStorage.setItem('player-name', savedName);
-        sessionStorage.setItem('bingo-game-id', serverGameId);
+        const savedName = localStorage.getItem('player-name');
+        const pwaDismissed = localStorage.getItem('pwa-banner-dismissed');
+        localStorage.clear();
+        if (savedName) localStorage.setItem('player-name', savedName);
+        if (pwaDismissed) localStorage.setItem('pwa-banner-dismissed', pwaDismissed);
+        localStorage.setItem('bingo-game-id', serverGameId);
         window.location.reload(); // Recargar para asegurar estado limpio y mostrar solicitud
     } else if (!localGameId) {
-        sessionStorage.setItem('bingo-game-id', serverGameId);
+        localStorage.setItem('bingo-game-id', serverGameId);
     }
+});
+
+socket.on('sync-patron', (patron) => {
+    currentPattern = patron;
+    actualizarIndicadorPatron(patron);
+    verificarEstadoBotonesBingo(); // Re-verificar con nueva regla
+});
+
+socket.on('cambio-patron', (patron) => {
+    currentPattern = patron;
+    actualizarIndicadorPatron(patron);
+    reproducirSonido('audio-ball');
+
+    let nombrePatron = "1 Línea";
+    if (patron === 'full') nombrePatron = "Cartón Lleno";
+    else if (patron === 'diagonal') nombrePatron = "Diagonal";
+    else if (patron === 'corners') nombrePatron = "4 Esquinas";
+    else if (patron === 'letterX') nombrePatron = "Letra X";
+    else if (patron === 'cross') nombrePatron = "Cruz (+)";
+
+    mostrarModal("🎯 NUEVA REGLA", `El administrador ha cambiado la forma de ganar a: ${nombrePatron}`, "info");
+
+    // Actualizar UI de botones
+    verificarEstadoBotonesBingo();
 });
 
 socket.on('mensaje-global', (mensaje) => {
@@ -473,7 +580,7 @@ socket.on('anuncio-ganador', (data) => {
     // Anunciar ganador con voz
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel(); // Detener bola anterior si estaba hablando
-        
+
         let texto = `¡Bingo! El jugador ${data.nombre} ha ganado.`;
         if (socket.id && data.id === socket.id) {
             texto = "¡Felicidades! ¡Has ganado el Bingo!";
@@ -490,7 +597,7 @@ socket.on('anuncio-ganador', (data) => {
 // Función para cantar Bingo de un cartón específico
 function reclamarBingoIndividual(cartonObj) {
     const todosMarcados = [];
-    Object.keys(sessionStorage).forEach(key => {
+    Object.keys(localStorage).forEach(key => {
         if (key.startsWith('marcado-')) todosMarcados.push(key.replace('marcado-', ''));
     });
 
@@ -507,7 +614,7 @@ function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
     const modal = document.getElementById('custom-modal');
     const content = modal.querySelector('.modal-content');
     content.classList.remove('about-modal-pulse');
-    
+
     // Guardar estructura original para restaurarla después
     if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
 
@@ -523,7 +630,7 @@ function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
         </div>
     `;
 
-    document.getElementById('btn-confirm-bingo').onclick = function() {
+    document.getElementById('btn-confirm-bingo').onclick = function () {
         const cartonMatrix = convertirA_Matriz(cartonObj.data);
         socket.emit('reclamar-bingo', {
             numeros: todosMarcados,
@@ -535,7 +642,7 @@ function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
         if (window.originalModalContent) content.innerHTML = window.originalModalContent;
         mostrarModal("⏳ ENVIADO", `Tu cartón ${cartonObj.id} ha sido enviado al administrador para validación.`, 'info');
     };
-    
+
     modal.style.display = 'flex';
 }
 
@@ -553,11 +660,40 @@ function convertirA_Matriz(columnas) {
     return matrix;
 }
 
+// Función para actualizar el indicador visual del modo de juego
+function actualizarIndicadorPatron(patron) {
+    let nombrePatron = "1 Línea";
+    if (patron === 'full') nombrePatron = "Cartón Lleno";
+    else if (patron === 'diagonal') nombrePatron = "Diagonal";
+    else if (patron === 'corners') nombrePatron = "4 Esquinas";
+    else if (patron === 'letterX') nombrePatron = "Letra X";
+    else if (patron === 'cross') nombrePatron = "Cruz (+)";
+
+    let display = document.getElementById('game-mode-display');
+    if (!display) {
+        display = document.createElement('div');
+        display.id = 'game-mode-display';
+        display.className = 'game-mode-badge';
+
+        const h1 = document.querySelector('h1');
+        if (h1 && h1.parentNode) {
+            h1.parentNode.insertBefore(display, h1.nextSibling);
+        }
+    }
+
+    display.innerHTML = `🎯 MODO: <span>${nombrePatron}</span>`;
+
+    // Animación de actualización
+    display.classList.remove('pulse-update');
+    void display.offsetWidth; // Trigger reflow
+    display.classList.add('pulse-update');
+}
+
 // Función para verificar si algún cartón tiene 4 o más aciertos en línea
 function verificarEstadoBotonesBingo() {
-    const cartones = JSON.parse(sessionStorage.getItem('bingo-ajp-cartones')) || [];
+    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
     const marcados = new Set();
-    Object.keys(sessionStorage).forEach(key => {
+    Object.keys(localStorage).forEach(key => {
         if (key.startsWith('marcado-')) marcados.add(key.replace('marcado-', ''));
     });
 
@@ -567,7 +703,8 @@ function verificarEstadoBotonesBingo() {
         if (!btn) return;
 
         const matrix = convertirA_Matriz(carton.data);
-        let maxAciertosEnLinea = 0;
+        let aciertos = 0;
+        let totalNecesario = 5; // Default para línea
 
         // Helper para contar aciertos en una lista de coordenadas
         const contarAciertos = (coords) => {
@@ -579,21 +716,57 @@ function verificarEstadoBotonesBingo() {
             return count;
         };
 
-        // Revisar todas las líneas posibles
-        for(let i=0; i<5; i++) {
-            maxAciertosEnLinea = Math.max(maxAciertosEnLinea, contarAciertos([[i,0],[i,1],[i,2],[i,3],[i,4]])); // Filas
-            maxAciertosEnLinea = Math.max(maxAciertosEnLinea, contarAciertos([[0,i],[1,i],[2,i],[3,i],[4,i]])); // Columnas
+        if (currentPattern === 'full') {
+            totalNecesario = 25; // 24 nums + free
+            const todas = [];
+            for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) todas.push([r, c]);
+            aciertos = contarAciertos(todas);
+
+        } else if (currentPattern === 'corners') {
+            totalNecesario = 4;
+            aciertos = contarAciertos([[0, 0], [0, 4], [4, 0], [4, 4]]);
+
+        } else if (currentPattern === 'letterX') {
+            totalNecesario = 9; // 5 + 4 (centro compartido)
+            const coords = [];
+            for (let i = 0; i < 5; i++) coords.push([i, i]);
+            for (let i = 0; i < 5; i++) if (i !== 2) coords.push([i, 4 - i]);
+            aciertos = contarAciertos(coords);
+
+        } else if (currentPattern === 'cross') {
+            totalNecesario = 9; // Fila media + Col media
+            const coords = [];
+            for (let i = 0; i < 5; i++) coords.push([2, i]);
+            for (let i = 0; i < 5; i++) if (i !== 2) coords.push([i, 2]);
+            aciertos = contarAciertos(coords);
+
+        } else if (currentPattern === 'diagonal') {
+            totalNecesario = 5;
+            let maxDiag = 0;
+            maxDiag = Math.max(maxDiag, contarAciertos([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]));
+            maxDiag = Math.max(maxDiag, contarAciertos([[0, 4], [1, 3], [2, 2], [3, 1], [4, 0]]));
+            aciertos = maxDiag;
+
+        } else {
+            // LINEA (Lógica original)
+            totalNecesario = 5;
+            let maxLinea = 0;
+            for (let i = 0; i < 5; i++) {
+                maxLinea = Math.max(maxLinea, contarAciertos([[i, 0], [i, 1], [i, 2], [i, 3], [i, 4]])); // Filas
+                maxLinea = Math.max(maxLinea, contarAciertos([[0, i], [1, i], [2, i], [3, i], [4, i]])); // Columnas
+            }
+            maxLinea = Math.max(maxLinea, contarAciertos([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]])); // Diag 1
+            maxLinea = Math.max(maxLinea, contarAciertos([[0, 4], [1, 3], [2, 2], [3, 1], [4, 0]])); // Diag 2
+            aciertos = maxLinea;
         }
-        maxAciertosEnLinea = Math.max(maxAciertosEnLinea, contarAciertos([[0,0],[1,1],[2,2],[3,3],[4,4]])); // Diag 1
-        maxAciertosEnLinea = Math.max(maxAciertosEnLinea, contarAciertos([[0,4],[1,3],[2,2],[3,1],[4,0]])); // Diag 2
 
         // Gestión de estados visuales del botón
         btn.classList.remove('pulse-animation', 'bingo-ready');
-        
-        if (maxAciertosEnLinea === 5) {
+
+        if (aciertos === totalNecesario) {
             // ¡BINGO COMPLETO! -> Rojo intenso
             btn.classList.add('bingo-ready');
-        } else if (maxAciertosEnLinea === 4) {
+        } else if (aciertos >= totalNecesario - 1) {
             // A punto de ganar -> Dorado pulsante
             btn.classList.add('pulse-animation');
         }
@@ -601,7 +774,7 @@ function verificarEstadoBotonesBingo() {
         // Actualizar contador de faltantes
         const counter = document.getElementById(`counter-${carton.id.replace('#', '')}`);
         if (counter) {
-            const faltan = 5 - maxAciertosEnLinea;
+            const faltan = totalNecesario - aciertos;
             if (faltan <= 0) {
                 counter.innerHTML = "¡TIENES BINGO!";
                 counter.style.color = "var(--danger)";
@@ -618,47 +791,113 @@ function verificarEstadoBotonesBingo() {
 // 7. Sistema de Modales
 function mostrarModal(titulo, mensaje, tipo) {
     const modal = document.getElementById('custom-modal');
+
+    // Si el usuario está en Sala de Espera (bloqueado), ignorar otros mensajes para evitar errores y mantener el bloqueo
+    if (modal.dataset.blocking === 'true') return;
+
     // Limpiar efecto especial si existe
     modal.querySelector('.modal-content').classList.remove('about-modal-pulse');
     const h2 = document.getElementById('modal-title');
     const p = document.getElementById('modal-message');
-    
+
     h2.textContent = titulo;
     p.textContent = mensaje;
-    
+
     // Colores según el tipo de mensaje
     if (tipo === 'success') h2.style.color = 'var(--success)';
     else if (tipo === 'error') h2.style.color = 'var(--danger)';
     else h2.style.color = 'var(--gold-solid)';
-    
+
     modal.style.display = 'flex';
 }
 
-window.cerrarModal = function() {
+function mostrarModalSalaEspera() {
     const modal = document.getElementById('custom-modal');
+    const content = modal.querySelector('.modal-content');
+    content.classList.remove('about-modal-pulse');
+
+    // Guardar estructura original para restaurarla después
+    if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+    // Marcar como bloqueante para impedir cierre manual
+    modal.dataset.blocking = 'true';
+
+    // Inyectar contenido SIN botones de cierre
+    content.innerHTML = `
+        <div style="font-size:4rem; margin-bottom:15px; animation: pulse 2s infinite;">⏳</div>
+        <h2 style="color:var(--gold-solid); margin-bottom:15px;">SALA DE ESPERA</h2>
+        <p style="color:white; margin-bottom:20px; font-size:1.1em;">La partida ya ha comenzado.</p>
+        
+        <div style="margin-bottom:20px; padding:15px; background:rgba(0,0,0,0.3); border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
+            <div style="color:var(--text-muted); font-size:0.85em; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">Bolas Cantadas</div>
+            <div style="font-size:2.5rem; font-weight:800; color:var(--gold-solid); line-height:1;">
+                <span id="waiting-ball-count" style="display:inline-block;">${numerosCantados.size}</span>
+            </div>
+        </div>
+
+        <p style="color:var(--text-muted); font-size:0.9em; margin-bottom:20px;">
+            Por favor, espera a que el administrador inicie una nueva ronda para unirte automáticamente.
+        </p>
+    `;
+
+    modal.style.display = 'flex';
+}
+
+window.cerrarModal = function (force = false) {
+    const modal = document.getElementById('custom-modal');
+
+    // Si está bloqueado y no es un cierre forzado por el sistema, impedir cierre
+    if (!force && modal.dataset.blocking === 'true') return;
+
+    modal.dataset.blocking = 'false'; // Resetear bloqueo
     modal.style.display = 'none';
     detenerSonido('audio-suspense'); // Detener sonido si cancelan/cierran
     modal.querySelector('.modal-content').classList.remove('about-modal-pulse');
-    
+
     // Restaurar contenido original para evitar errores en futuros modales
     if (window.originalModalContent) {
         modal.querySelector('.modal-content').innerHTML = window.originalModalContent;
     }
+    // Resetear estilos modificados (ancho)
+    const content = modal.querySelector('.modal-content');
+    content.style.width = '';
+    content.style.maxWidth = '';
 };
 
-// 8. Efecto de Confeti
+// 8. Efecto de Confeti y Fuegos Artificiales
 function lanzarConfeti() {
-    const duration = 3000;
-    const end = Date.now() + duration;
+    const duration = 5000;
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 2000 };
 
+    function randomInRange(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    // Intervalo para explosiones tipo fuegos artificiales
+    const interval = setInterval(function () {
+        const timeLeft = animationEnd - Date.now();
+
+        if (timeLeft <= 0) {
+            return clearInterval(interval);
+        }
+
+        const particleCount = 50 * (timeLeft / duration);
+
+        // Explosiones aleatorias (izquierda y derecha)
+        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
+        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
+    }, 250);
+
+    // Lluvia lateral continua
     (function frame() {
-        // Lanzar confeti desde las esquinas inferiores con colores dorados y blancos
+        const timeLeft = animationEnd - Date.now();
+        if (timeLeft <= 0) return;
+
         confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
         confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
 
-        if (Date.now() < end) {
-            requestAnimationFrame(frame);
-        }
+        requestAnimationFrame(frame);
     }());
 }
 
@@ -704,7 +943,7 @@ function mostrarMensajeDesconexion() {
         modal.id = 'disconnect-modal';
         modal.className = 'modal-overlay';
         modal.style.zIndex = '20000'; // Asegurar que esté por encima de todo
-        
+
         modal.innerHTML = `
             <div class="modal-content" style="border-color: var(--danger); text-align: center;">
                 <div style="font-size: 4rem; margin-bottom: 15px;">🔌</div>
@@ -725,22 +964,22 @@ function mostrarModalSolicitud() {
     // Usamos el modal existente pero inyectamos un formulario
     const content = modal.querySelector('.modal-content');
     content.classList.remove('about-modal-pulse');
-    
+
     // Guardar contenido original para restaurarlo luego si es necesario
     if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
-    
+
     content.innerHTML = `
         <h2 style="color:var(--gold-solid); margin-bottom:15px;">SOLICITUD DE CARTONES</h2>
         <p style="color:var(--text-muted); margin-bottom:20px;">Contacta al administrador para ingresar.</p>
         
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Tu Nombre:</label>
-            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. JUAN PÉREZ" oninput="this.value = this.value.toUpperCase()">
+            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. JUAN PÉREZ" oninput="this.value = this.value.toUpperCase(); validarFormularioSolicitud()">
         </div>
 
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Banco Emisor:</label>
-            <select id="player-bank" class="admin-input" style="width:100%; background:rgba(0,0,0,0.5); color: white;">
+            <select id="player-bank" class="admin-input" style="width:100%; background:rgba(0,0,0,0.5); color: white;" onchange="validarFormularioSolicitud()">
                 <option value="" disabled selected>Seleccione Banco...</option>
                 <option value="Banco de Venezuela" style="color:black;">Banco de Venezuela</option>
                 <option value="Banesco" style="color:black;">Banesco</option>
@@ -767,25 +1006,42 @@ function mostrarModalSolicitud() {
 
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Referencia Pago Móvil:</label>
-            <input type="text" id="player-ref" class="admin-input" style="width:100%" placeholder="Ej. 123456">
+            <input type="text" id="player-ref" class="admin-input" style="width:100%" placeholder="Ej. 123456" oninput="validarFormularioSolicitud()">
         </div>
         
         <div style="text-align:left; margin-bottom:20px;">
             <label style="display:block; color:white; margin-bottom:5px;">Cantidad de Cartones:</label>
-            <select id="card-quantity" class="admin-input" style="width:100%; background:rgba(0,0,0,0.5);">
-                <option value="1">1 Cartón</option>
-                <option value="2">2 Cartones</option>
-                <option value="3">3 Cartones</option>
-                <option value="4">4 Cartones</option>
+            <select id="card-quantity" class="admin-input" style="width:100%; background:rgba(0,0,0,0.5); color:white;">
+                <option value="1" style="color:black;">1 Cartón</option>
+                <option value="2" style="color:black;">2 Cartones</option>
+                <option value="3" style="color:black;">3 Cartones</option>
+                <option value="4" style="color:black;">4 Cartones</option>
             </select>
         </div>
 
-        <button onclick="enviarSolicitud()" style="background:var(--gold-gradient); color:black;">ENVIAR SOLICITUD</button>
+        <button id="btn-enviar-solicitud" onclick="enviarSolicitud()" disabled style="background:var(--gold-gradient); color:black; opacity:0.5; cursor:not-allowed;">ENVIAR SOLICITUD</button>
         <p id="solicitud-status" style="margin-top:10px; font-size:0.9em; color:var(--text-muted);"></p>
     `;
-    
+
     modal.style.display = 'flex';
 }
+
+window.validarFormularioSolicitud = function () {
+    const nombre = document.getElementById('player-name').value.trim();
+    const banco = document.getElementById('player-bank').value;
+    const ref = document.getElementById('player-ref').value.trim();
+    const btn = document.getElementById('btn-enviar-solicitud');
+
+    if (nombre && banco && ref) {
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        btn.style.cursor = "pointer";
+    } else {
+        btn.disabled = true;
+        btn.style.opacity = "0.5";
+        btn.style.cursor = "not-allowed";
+    }
+};
 
 function enviarSolicitud() {
     const nombre = document.getElementById('player-name').value.trim();
@@ -818,9 +1074,21 @@ function enviarSolicitud() {
         status.style.color = "var(--danger)";
         return;
     }
-    
+
+    if (isNaN(cantidad) || cantidad < 1 || cantidad > 4) {
+        status.textContent = "La cantidad de cartones debe ser entre 1 y 4.";
+        status.style.color = "var(--danger)";
+        return;
+    }
+
+    // Validar si el juego inició mientras llenaba el formulario
+    if (juegoIniciado) {
+        mostrarModalSalaEspera();
+        return;
+    }
+
     // Guardar nombre para el chat
-    sessionStorage.setItem('player-name', nombre);
+    localStorage.setItem('player-name', nombre);
 
     status.textContent = "Enviando solicitud al administrador...";
     status.style.color = "var(--gold-solid)";
@@ -833,34 +1101,26 @@ function enviarSolicitud() {
 socket.on('solicitud-aprobada', (data) => {
     const modal = document.getElementById('custom-modal');
     modal.style.display = 'none';
-    
+
     // Restaurar modal (opcional)
     if (window.originalModalContent) {
         modal.querySelector('.modal-content').innerHTML = window.originalModalContent;
     }
 
+    localStorage.setItem('bingo-pending-selection', data.cantidad); // Guardar estado por si recarga
     mostrarModal("✅ SOLICITUD APROBADA", `El administrador te ha habilitado ${data.cantidad} cartones.`, "success");
     setTimeout(() => cerrarModal(), 2000);
 
-    // Generar los cartones de forma secuencial para evitar errores de guardado
-    let creados = 0;
-    function crearSiguiente() {
-        if (creados < data.cantidad) {
-            agregarNuevoCarton(false, () => {
-                creados++;
-                crearSiguiente();
-            });
-        } else {
-            renderizarCartones();
-        }
-    }
-    crearSiguiente();
+    // EN LUGAR DE GENERAR AUTOMÁTICAMENTE, ABRIMOS EL SELECTOR
+    setTimeout(() => {
+        mostrarModalSeleccionCartones(data.cantidad);
+    }, 2100);
 });
 
 socket.on('solicitud-rechazada', (data) => {
     const status = document.getElementById('solicitud-status');
     const btn = document.querySelector('#custom-modal button');
-    
+
     if (status) {
         status.textContent = `Solicitud rechazada: ${data.motivo || 'Sin motivo'}`;
         status.style.color = "var(--danger)";
@@ -872,6 +1132,12 @@ socket.on('solicitud-rechazada', (data) => {
 });
 
 socket.on('solicitud-error', (data) => {
+    // Si el servidor rechaza por juego iniciado, enviar a sala de espera
+    if (data.reason === 'GAME_IN_PROGRESS') {
+        mostrarModalSalaEspera();
+        return;
+    }
+
     const status = document.getElementById('solicitud-status');
     const btn = document.querySelector('#custom-modal button');
     if (status) {
@@ -883,6 +1149,308 @@ socket.on('solicitud-error', (data) => {
         btn.style.opacity = "1";
     }
 });
+
+// --- FUNCIONES PARA CAMBIAR CARTÓN (SWAP) ---
+window.mostrarModalCambioCarton = function (idOld) {
+    socket.emit('obtener-cartones-disponibles', (ocupados) => {
+        const setOcupados = new Set(ocupados);
+        const modal = document.getElementById('custom-modal');
+        const content = modal.querySelector('.modal-content');
+        content.classList.remove('about-modal-pulse');
+
+        if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+        modal.dataset.blocking = 'true'; // Bloquear cierre manual
+
+        let gridHtml = `<div class="selection-grid" data-context="swap" data-old-id="${idOld}">`;
+        for (let i = 1; i <= 50; i++) {
+            const isTaken = setOcupados.has(i);
+            const isSelf = String(i) === String(idOld).replace('#', ''); // ¿Es el cartón que estamos cambiando?
+
+            let className = 'select-card-item';
+            let onClick = '';
+            let title = `Cartón #${i}`;
+            let style = '';
+
+            if (isSelf) {
+                className += ' taken';
+                style = 'border: 2px solid var(--gold-solid); background: rgba(51, 107, 135, 0.4); color: white;';
+                title = 'Tu cartón actual';
+            } else if (isTaken) {
+                className += ' taken';
+                title = 'Ocupado';
+            } else {
+                onClick = `onclick="confirmarCambioCarton('${idOld}', '${i}')"`;
+            }
+
+            gridHtml += `<div class="${className}" style="${style}" ${onClick} title="${title}">${i}</div>`;
+        }
+        gridHtml += '</div>';
+
+        content.innerHTML = `
+            <h2 style="color:var(--gold-solid); margin-bottom:5px;">CAMBIAR CARTÓN</h2>
+            <p style="color:white; margin-bottom:10px;">Estás cambiando el cartón <strong style="color:var(--gold-solid)">${idOld}</strong></p>
+            <p style="color:var(--text-muted); font-size:0.9em;">Selecciona uno nuevo de la lista:</p>
+            ${gridHtml}
+            <button onclick="cerrarModal(true)" style="margin-top:15px; background:transparent; border:1px solid var(--text-muted); color:var(--text-muted);">CANCELAR</button>
+        `;
+        modal.style.display = 'flex';
+    });
+}
+
+window.confirmarCambioCarton = function (idOld, idNew) {
+    if (!confirm(`¿Confirmas el cambio del cartón ${idOld} por el #${idNew}?`)) return;
+
+    // 1. Liberar el viejo en el servidor
+    socket.emit('liberar-carton', idOld);
+
+    // 2. Preparar el nuevo
+    const newId = String(idNew);
+    const dataFija = generarCartonFijo(newId);
+    const matrix = convertirA_Matriz(dataFija);
+
+    // 3. Actualizar LocalStorage
+    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    const index = cartones.findIndex(c => c.id === idOld);
+    if (index !== -1) {
+        cartones[index] = { id: newId, data: dataFija };
+        localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
+    }
+
+    // 4. Registrar el nuevo
+    socket.emit('registrar-id', { id: newId, matrix: matrix }, (res) => {
+        if (res && res.accepted) {
+            renderizarCartones();
+            cerrarModal(true);
+            reproducirSonido('audio-ball');
+            mostrarModal("✅ CAMBIO EXITOSO", `Ahora juegas con el cartón ${newId}.`, "success");
+            setTimeout(() => cerrarModal(), 1500);
+        } else {
+            // REVERTIR CAMBIOS (Rollback)
+            if (index !== -1) {
+                // Recuperar estado anterior si falló (necesitaríamos haber guardado backup, 
+                // pero para simplificar, recargamos o avisamos)
+                // En este flujo simple, avisamos y el usuario tendrá que intentar de nuevo.
+            }
+            if (res.reason === 'CARD_TAKEN') {
+                mostrarModal("⛔ CARTÓN OCUPADO", `El cartón #${newId} ya está en uso por otro jugador.`, "error");
+            } else {
+                mostrarModal("❌ ERROR", "No se pudo registrar el nuevo cartón.", "error");
+            }
+            // Recargar para asegurar estado consistente
+            setTimeout(() => location.reload(), 3000);
+        }
+    });
+}
+
+// --- NUEVO: MODAL DE SELECCIÓN DE CARTONES (1-100) ---
+function mostrarModalSeleccionCartones(cantidadPermitida) {
+    // Pedir al servidor cuáles están ocupados
+    socket.emit('obtener-cartones-disponibles', (ocupados) => {
+        const setOcupados = new Set(ocupados);
+        cartonesSeleccionadosTemp.clear();
+
+        const modal = document.getElementById('custom-modal');
+        const content = modal.querySelector('.modal-content');
+        content.classList.remove('about-modal-pulse');
+
+        // Guardar original
+        if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+        // Ajustar ancho para vista previa
+        content.style.width = '800px';
+        content.style.maxWidth = '95%';
+
+        // Bloquear cierre manual para obligar a seleccionar
+        modal.dataset.blocking = 'true';
+
+        let gridHtml = `<div class="selection-grid" data-context="select" data-max="${cantidadPermitida}">`;
+        for (let i = 1; i <= 50; i++) {
+            const isTaken = setOcupados.has(i);
+            const className = isTaken ? 'select-card-item taken' : 'select-card-item';
+            const onClick = isTaken ? '' : `onclick="toggleSeleccionCarton(this, ${i}, ${cantidadPermitida})"`;
+            const title = isTaken ? 'Ocupado' : `Cartón #${i}`;
+            gridHtml += `<div id="sel-card-${i}" class="${className}" ${onClick} title="${title}">${i}</div>`;
+        }
+        gridHtml += '</div>';
+
+        content.innerHTML = `
+            <h2 style="color:var(--gold-solid); margin-bottom:5px;">ELIGE TUS CARTONES</h2>
+            <p style="color:white; margin-bottom:10px;">Tienes aprobados: <strong style="color:var(--success); font-size:1.2em;">${cantidadPermitida}</strong></p>
+            <p style="color:var(--text-muted); font-size:0.9em;">Selecciona los números que deseas jugar (1-50).</p>
+            
+            <div style="display:flex; flex-wrap:wrap; gap:20px; justify-content:center; align-items:flex-start;">
+                <div style="flex:1; min-width:260px;">
+                    ${gridHtml}
+                </div>
+                <div id="preview-container" style="flex: 1; min-width: 200px; max-width: 300px; background:rgba(0,0,0,0.3); padding:15px; border-radius:12px; border:1px solid rgba(255,255,255,0.1); display:flex; flex-direction:column; align-items:center; min-height:230px; justify-content:center;">
+                    <p style="color:var(--text-muted); font-size:0.85em; text-align:center; font-style:italic;">Toca un número para ver la vista previa.</p>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; width:100%;">
+                <div id="selection-count" style="color:var(--text-muted);">Seleccionados: 0 / ${cantidadPermitida}</div>
+                <button id="btn-confirm-selection" onclick="confirmarSeleccionCartones(${cantidadPermitida})" disabled style="width:auto; padding:10px 25px; background:var(--gold-gradient); opacity:0.5; cursor:not-allowed;">JUGAR</button>
+            </div>
+        `;
+
+        modal.style.display = 'flex';
+    });
+}
+
+function mostrarVistaPreviaCarton(id) {
+    const container = document.getElementById('preview-container');
+    if (!container) return;
+
+    const data = generarCartonFijo(id);
+    const matrix = convertirA_Matriz(data);
+
+    let html = `<div class="preview-content">`;
+    html += `<div style="color:var(--gold-solid); font-weight:bold; margin-bottom:10px;">CARTÓN #${id}</div>`;
+    html += '<div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; width:100%;">';
+
+    ['B', 'I', 'N', 'G', 'O'].forEach(l => {
+        html += `<div style="text-align:center; font-weight:bold; color:var(--text-muted); font-size:0.8em;">${l}</div>`;
+    });
+
+    for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+            const val = matrix[r][c];
+            let content = val;
+            let style = 'background:rgba(255,255,255,0.05); aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:0.85em; color:white;';
+
+            if (val === 'FREE') {
+                content = '★';
+                style = 'background:rgba(51, 107, 135, 0.2); aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:0.85em; color:var(--gold-solid); border:1px dashed var(--gold-solid);';
+            }
+            html += `<div style="${style}">${content}</div>`;
+        }
+    }
+    html += '</div></div>';
+
+    container.innerHTML = html;
+}
+
+window.toggleSeleccionCarton = function (el, id, max) {
+    if (cartonesSeleccionadosTemp.has(id)) {
+        cartonesSeleccionadosTemp.delete(id);
+        el.classList.remove('selected');
+    } else {
+        if (cartonesSeleccionadosTemp.size >= max) {
+            // Feedback visual de límite alcanzado (opcional)
+            return;
+        }
+        cartonesSeleccionadosTemp.add(id);
+        el.classList.add('selected');
+    }
+    actualizarUISeleccion(max);
+    // Mostrar vista previa del cartón tocado
+    mostrarVistaPreviaCarton(id);
+};
+
+function actualizarUISeleccion(max) {
+    const countDiv = document.getElementById('selection-count');
+    const btn = document.getElementById('btn-confirm-selection');
+    if (!countDiv || !btn) return;
+
+    countDiv.textContent = `Seleccionados: ${cartonesSeleccionadosTemp.size} / ${max}`;
+
+    if (cartonesSeleccionadosTemp.size === max) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        countDiv.style.color = 'var(--success)';
+    } else {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+        countDiv.style.color = 'var(--text-muted)';
+    }
+}
+
+// Sincronización en tiempo real de la cuadrícula de selección
+socket.on('estado-carton-cambiado', (data) => {
+    const el = document.getElementById(`sel-card-${data.id}`);
+    if (!el) return;
+
+    const grid = el.parentElement;
+    const context = grid.dataset.context;
+
+    if (data.estado === 'ocupado') {
+        el.classList.add('taken');
+        el.title = 'Ocupado';
+        el.onclick = null;
+        el.style.cursor = 'not-allowed';
+
+        // Si yo lo tenía seleccionado (y alguien más me ganó), deseleccionarlo
+        if (context === 'select') {
+            const id = parseInt(data.id);
+            if (cartonesSeleccionadosTemp.has(id)) {
+                cartonesSeleccionadosTemp.delete(id);
+                el.classList.remove('selected');
+                const max = parseInt(grid.dataset.max);
+                actualizarUISeleccion(max);
+            }
+        }
+    } else {
+        el.classList.remove('taken');
+        el.title = `Cartón #${data.id}`;
+        el.style.cursor = 'pointer';
+
+        // Restaurar evento click según el contexto
+        if (context === 'select') {
+            const max = parseInt(grid.dataset.max);
+            el.onclick = () => toggleSeleccionCarton(el, parseInt(data.id), max);
+        } else if (context === 'swap') {
+            const oldId = grid.dataset.oldId;
+            el.onclick = () => confirmarCambioCarton(oldId, data.id);
+        }
+    }
+});
+
+window.confirmarSeleccionCartones = function (cantidad) {
+    if (cartonesSeleccionadosTemp.size !== cantidad) return;
+
+    localStorage.removeItem('bingo-pending-selection'); // Limpiar estado pendiente al confirmar
+    // Cerrar modal primero para mejor UX
+    cerrarModal(true);
+    reproducirSonido('audio-ball');
+
+    // Procesar selección
+    cartonesSeleccionadosTemp.forEach(id => {
+        const dataFija = generarCartonFijo(id);
+        const matrix = convertirA_Matriz(dataFija);
+
+        // Guardar localmente (Optimista)
+        let cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+        // Usamos el ID numérico como string para consistencia
+        cartonesActuales.push({ id: String(id), data: dataFija });
+        localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
+
+        // Renderizar inmediatamente
+        renderizarCartones();
+
+        // Registrar en servidor
+        socket.emit('registrar-id', { id: String(id), matrix: matrix }, (res) => {
+            if (!res.accepted) {
+                console.error(`Error registrando cartón ${id}: ${res.reason}`);
+
+                if (res.reason === 'CARD_TAKEN') {
+                    // 1. Notificar al usuario
+                    mostrarModal("⛔ CARTÓN OCUPADO", `El cartón #${id} fue seleccionado por otro jugador hace un instante.`, "error");
+
+                    // 2. Revertir cambio local (Eliminar el cartón inválido)
+                    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                    const filtrados = cartones.filter(c => c.id !== String(id));
+                    localStorage.setItem('bingo-ajp-cartones', JSON.stringify(filtrados));
+
+                    // 3. Actualizar UI
+                    renderizarCartones();
+                }
+            }
+        });
+    });
+};
 
 // --- CHAT SYSTEM ---
 function initChat() {
@@ -922,7 +1490,7 @@ function toggleChat() {
     w.style.display = w.style.display === 'none' ? 'flex' : 'none';
     if (w.style.display === 'flex') {
         const input = document.getElementById('chat-input');
-        const nombre = sessionStorage.getItem('player-name');
+        const nombre = localStorage.getItem('player-name');
         if (nombre) {
             input.placeholder = `Escribe como ${nombre}...`;
         }
@@ -945,12 +1513,12 @@ function enviarMensajeChat() {
     const texto = input.value.trim();
     if (!texto) return;
 
-    let nombre = sessionStorage.getItem('player-name');
+    let nombre = localStorage.getItem('player-name');
 
     if (!nombre) {
         nombre = prompt("Para participar en el chat, por favor escribe tu nombre:");
         if (nombre) {
-            sessionStorage.setItem('player-name', nombre);
+            localStorage.setItem('player-name', nombre);
             socket.emit('registrar-nombre', nombre);
             input.placeholder = `Escribe como ${nombre}...`;
         } else {
@@ -967,8 +1535,8 @@ socket.on('chat-nuevo-mensaje', (data) => {
     if (!container) return;
 
     const div = document.createElement('div');
-    const miNombre = sessionStorage.getItem('player-name') || 'Jugador';
-    
+    const miNombre = localStorage.getItem('player-name') || 'Jugador';
+
     let clase = 'others';
     if (data.esAdmin) clase = 'admin';
     else if (data.usuario === miNombre) clase = 'mine';
@@ -977,7 +1545,7 @@ socket.on('chat-nuevo-mensaje', (data) => {
     if (clase !== 'mine') {
         const audio = new Audio('sounds/pop.mp3');
         audio.volume = 0.4; // Suave
-        audio.play().catch(e => {});
+        audio.play().catch(e => { });
 
         // Animación del botón si el chat está cerrado
         const widget = document.getElementById('chat-widget');
@@ -1002,10 +1570,10 @@ socket.on('chat-nuevo-mensaje', (data) => {
     }
 
     div.className = `chat-msg ${clase}`;
-    
-    const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+    const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     div.innerHTML = `<strong>${data.usuario}:</strong> ${data.texto}<div class="chat-time">${time}</div>`;
-    
+
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 });
@@ -1019,9 +1587,9 @@ socket.on('chat-clear-history', () => {
 function mostrarAcercaDe() {
     const modal = document.getElementById('custom-modal');
     const content = modal.querySelector('.modal-content');
-    
+
     content.classList.add('about-modal-pulse');
-    
+
     // Guardar contenido original si no existe para poder restaurarlo
     if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
 
@@ -1043,7 +1611,7 @@ function mostrarAcercaDe() {
             <p style="color: white; margin-bottom: 5px; font-size: 1.1em;">Desarrollado por <strong>AJP-Logic</strong></p>
             
             <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.1);">
-                <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 5px;">Versión 1.00</p>
+                <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 5px;">Versión 2.00</p>
                 <p style="color: var(--text-muted); font-size: 0.9em;">Fecha de actualización: ${new Date().toLocaleDateString()}</p>
             </div>
             
@@ -1054,12 +1622,12 @@ function mostrarAcercaDe() {
             <button onclick="cerrarModal()" style="margin-top: 20px; background: var(--gold-gradient); color: black; width: auto; padding: 10px 30px;">CERRAR</button>
         </div>
     `;
-    
+
     modal.style.display = 'flex';
 }
 
 // --- COMPARTIR ENLACE ---
-window.compartirEnlace = function() {
+window.compartirEnlace = function () {
     const url = window.location.href; // Compartir la URL actual (GitHub Pages o Render)
     const text = "¡Únete a mi partida de Bingo Online! " + url;
 
@@ -1074,15 +1642,15 @@ window.compartirEnlace = function() {
         const modal = document.getElementById('custom-modal');
         const content = modal.querySelector('.modal-content');
         content.classList.remove('about-modal-pulse');
-        
+
         if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
 
         // Detectar si es móvil para usar esquema directo
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        const whatsappUrl = isMobile 
+        const whatsappUrl = isMobile
             ? `whatsapp://send?text=${encodeURIComponent(text)}`
             : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-        
+
         content.innerHTML = `
             <h2 style="color:var(--gold-solid); margin-bottom:15px;">COMPARTIR</h2>
             <p style="color:var(--text-muted); margin-bottom:20px;">Elige una opción:</p>
@@ -1095,18 +1663,18 @@ window.compartirEnlace = function() {
             
             <button onclick="cerrarModal()" style="background:transparent; border:1px solid var(--text-muted); color:var(--text-muted); font-size:0.9rem; padding:10px;">CANCELAR</button>
         `;
-        
+
         modal.style.display = 'flex';
     }
 };
 
-window.mostrarQR = function(url) {
+window.mostrarQR = function (url) {
     const modal = document.getElementById('custom-modal');
     const content = modal.querySelector('.modal-content');
-    
+
     // Usamos una API pública para generar el QR
     const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-    
+
     content.innerHTML = `
         <h2 style="color:var(--gold-solid); margin-bottom:15px;">CÓDIGO QR</h2>
         <div style="background:white; padding:15px; border-radius:12px; display:inline-block; margin-bottom:20px;">
@@ -1132,7 +1700,7 @@ if ('serviceWorker' in navigator) {
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    
+
     // Mostrar Banner si no ha sido descartado previamente
     if (!localStorage.getItem('pwa-banner-dismissed')) {
         mostrarBannerPWA();
@@ -1163,27 +1731,27 @@ function mostrarBannerPWA() {
         </div>
     `;
     document.body.appendChild(banner);
-    
+
     // Animación de entrada
     requestAnimationFrame(() => {
         banner.classList.add('visible');
     });
 }
 
-window.cerrarBannerPWA = function() {
+window.cerrarBannerPWA = function () {
     const banner = document.getElementById('pwa-install-banner');
     if (banner) {
         banner.classList.remove('visible');
         setTimeout(() => banner.remove(), 300);
     }
     localStorage.setItem('pwa-banner-dismissed', 'true');
-    
+
     // Mostrar botón flotante pequeño por si cambia de opinión
     const btn = document.getElementById('btn-install-pwa');
     if (btn) btn.style.display = 'flex';
 };
 
-window.instalarPWA = function() {
+window.instalarPWA = function () {
     // Cerrar banner si está abierto
     const banner = document.getElementById('pwa-install-banner');
     if (banner) {
