@@ -819,6 +819,12 @@ button:active {
 
 /* RESPONSIVO */
 @media (max-width: 600px) {
+    body {
+        padding: 5px;
+        justify-content: flex-start;
+        /* Evitar corte superior si el contenido es largo */
+    }
+
     .master-board {
         grid-template-columns: repeat(5, 1fr);
         gap: 4px;
@@ -826,22 +832,23 @@ button:active {
 
     .game-container,
     .admin-container {
-        padding: 0.5rem;
+        padding: 10px;
         /* Padding reducido para ganar espacio */
         width: 96%;
+        margin-top: 10px;
     }
 
     /* OPTIMIZACIÓN MÓVIL: GRID 2x2 PARA CARTONES */
     .cards-container {
-        gap: 4px;
+        gap: 6px;
         /* Espacio mínimo */
         justify-content: center;
         margin-bottom: 0.5rem;
     }
 
     .single-card-wrapper {
-        width: calc(50% - 4px);
-        padding: 4px;
+        width: calc(50% - 3px);
+        padding: 5px;
         /* Padding ultra compacto */
         max-width: none;
         border-radius: 8px;
@@ -860,7 +867,7 @@ button:active {
     }
 
     .cell {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         /* Fuente reducida */
         border-radius: 4px;
         border-width: 0.5px;
@@ -868,7 +875,7 @@ button:active {
 
     .header {
         padding: 2px 0;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         margin-bottom: 2px;
         border-radius: 4px;
     }
@@ -895,19 +902,24 @@ button:active {
     }
 
     h1 {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
     }
 
     .last-calls-container {
-        margin: 10px 0;
-        padding: 8px;
+        margin: 5px 0 10px 0;
+        padding: 5px;
+    }
+
+    .balls-row {
+        gap: 5px;
     }
 
     .ball-placeholder {
-        width: 32px;
-        height: 32px;
-        font-size: 0.8rem;
+        width: 28px;
+        height: 28px;
+        font-size: 0.7rem;
     }
 
     #display-ball {
@@ -936,15 +948,15 @@ button:active {
     }
 
     .btn-mini-bingo {
-        padding: 2px 6px;
+        padding: 2px 4px;
         font-size: 0.6rem;
         border-radius: 4px;
     }
 
     .btn-change-card {
-        width: 20px;
-        height: 20px;
-        font-size: 0.8rem;
+        width: 18px;
+        height: 18px;
+        font-size: 0.7rem;
         margin-left: 4px;
         border-radius: 4px;
     }
@@ -992,6 +1004,23 @@ button:active {
         flex: initial;
         padding: 6px 12px;
         font-size: 0.8rem;
+    }
+
+    /* Ajuste de Badge de Modo */
+    .game-mode-badge {
+        padding: 4px 10px;
+        font-size: 0.7rem;
+        margin-bottom: 10px;
+    }
+
+    /* Chat flotante más pequeño */
+    .chat-toggle-btn {
+        width: 45px;
+        height: 45px;
+        font-size: 1.2rem;
+        bottom: 70px;
+        /* Subir para no tapar banner PWA si existe */
+        right: 10px;
     }
 }
 
