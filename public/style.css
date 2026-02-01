@@ -798,6 +798,25 @@ button:active {
     margin: 0;
 }
 
+/* --- NUEVO: ESTRUCTURA GRID PARA HERRAMIENTAS ADMIN --- */
+.admin-tools-wrapper {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+    width: 100%;
+    margin-top: 20px;
+}
+
+.admin-actions-panel {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 15px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
 /* RESPONSIVO */
 @media (max-width: 600px) {
     .master-board {
@@ -807,25 +826,25 @@ button:active {
 
     .game-container,
     .admin-container {
-        padding: 1rem;
+        padding: 0.5rem;
+        /* Padding reducido para ganar espacio */
         width: 96%;
     }
 
     /* OPTIMIZACIÓN MÓVIL: GRID 2x2 PARA CARTONES */
     .cards-container {
-        gap: 8px;
-        /* Menor espacio entre cartones */
+        gap: 4px;
+        /* Espacio mínimo */
         justify-content: center;
-        /* Centrar elementos */
+        margin-bottom: 0.5rem;
     }
 
     .single-card-wrapper {
         width: calc(50% - 4px);
-        /* 2 cartones por fila (mitad menos la mitad del gap) */
-        padding: 8px;
-        /* Padding compacto */
+        padding: 4px;
+        /* Padding ultra compacto */
         max-width: none;
-        /* Permitir que se ajuste al grid */
+        border-radius: 8px;
     }
 
     /* Si hay un solo cartón, que ocupe todo el ancho para mejor visibilidad */
@@ -836,26 +855,39 @@ button:active {
     }
 
     .bingo-grid {
-        gap: 4px;
-        /* Celdas más juntas */
+        gap: 2px;
+        /* Celdas casi pegadas */
     }
 
     .cell {
-        font-size: 0.85rem;
-        /* Números más pequeños */
-        border-radius: 6px;
+        font-size: 0.75rem;
+        /* Fuente reducida */
+        border-radius: 4px;
+        border-width: 0.5px;
     }
 
     .header {
-        padding: 5px 0;
-        font-size: 0.9rem;
-        margin-bottom: 5px;
+        padding: 2px 0;
+        font-size: 0.7rem;
+        margin-bottom: 2px;
+        border-radius: 4px;
+    }
+
+    .card-header-row {
+        margin-bottom: 4px;
+    }
+
+    .missing-counter {
+        margin-top: 4px;
+        padding: 2px;
+        font-size: 0.65rem;
+        border-radius: 4px;
     }
 
     /* Ajustar botón de añadir para que encaje en el grid */
     .add-card-btn {
         width: calc(50% - 4px);
-        min-height: 120px;
+        min-height: 100px;
     }
 
     .add-card-btn:only-child {
@@ -863,7 +895,19 @@ button:active {
     }
 
     h1 {
-        font-size: 1.4rem;
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .last-calls-container {
+        margin: 10px 0;
+        padding: 8px;
+    }
+
+    .ball-placeholder {
+        width: 32px;
+        height: 32px;
+        font-size: 0.8rem;
     }
 
     #display-ball {
@@ -888,19 +932,66 @@ button:active {
 
     /* Ajustes de cabecera de cartón en móvil */
     .card-id-label {
-        font-size: 0.7rem;
+        font-size: 0.6rem;
     }
 
     .btn-mini-bingo {
-        padding: 4px 8px;
-        font-size: 0.7rem;
+        padding: 2px 6px;
+        font-size: 0.6rem;
+        border-radius: 4px;
     }
 
     .btn-change-card {
-        width: 24px;
-        height: 24px;
-        font-size: 0.9rem;
+        width: 20px;
+        height: 20px;
+        font-size: 0.8rem;
         margin-left: 4px;
+        border-radius: 4px;
+    }
+
+    .admin-actions-panel {
+        grid-template-columns: 1fr;
+        /* Botones apilados en móvil */
+    }
+
+    /* PWA Banner Compacto */
+    .pwa-banner {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px;
+        padding-bottom: 20px;
+    }
+
+    .pwa-content {
+        flex-direction: row;
+        text-align: left;
+        flex: 1;
+    }
+
+    .pwa-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    .pwa-text strong {
+        font-size: 0.9rem;
+    }
+
+    .pwa-text span {
+        font-size: 0.75rem;
+    }
+
+    .pwa-actions {
+        width: auto;
+        justify-content: flex-end;
+    }
+
+    .pwa-btn-install,
+    .pwa-btn-cancel {
+        flex: initial;
+        padding: 6px 12px;
+        font-size: 0.8rem;
     }
 }
 
@@ -1467,30 +1558,6 @@ button:active {
     font-size: 0.9rem;
     cursor: pointer;
     width: auto;
-}
-
-@media (max-width: 600px) {
-    .pwa-banner {
-        flex-direction: column;
-        gap: 20px;
-        padding-bottom: 30px;
-    }
-
-    .pwa-content {
-        flex-direction: column;
-        text-align: center;
-    }
-
-    .pwa-actions {
-        width: 100%;
-        justify-content: center;
-    }
-
-    .pwa-btn-install,
-    .pwa-btn-cancel {
-        flex: 1;
-        justify-content: center;
-    }
 }
 
 /* --- SELECCIÓN DE CARTONES (1-100) --- */

@@ -1615,6 +1615,24 @@ function mostrarAcercaDe() {
                 <p style="color: var(--text-muted); font-size: 0.9em;">Fecha de actualización: ${new Date().toLocaleDateString()}</p>
             </div>
             
+            <div style="text-align: left; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 12px; max-height: 150px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px;">
+                <h4 style="color: var(--gold-solid); margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase;">Historial de Cambios</h4>
+                <ul style="list-style: none; padding: 0; font-size: 0.85em; color: var(--text-muted);">
+                    <li style="margin-bottom: 8px;">
+                        <strong style="color: white;">v2.00</strong> - Actualización mayor de UI, sistema de chat, PWA y optimización móvil.
+                    </li>
+                    <li style="margin-bottom: 8px;">
+                        <strong style="color: white;">v1.50</strong> - Agregado soporte para múltiples cartones (hasta 4).
+                    </li>
+                    <li style="margin-bottom: 8px;">
+                        <strong style="color: white;">v1.20</strong> - Mejoras en la sincronización de sockets y reconexión.
+                    </li>
+                    <li>
+                        <strong style="color: white;">v1.00</strong> - Lanzamiento inicial.
+                    </li>
+                </ul>
+            </div>
+            
             <div style="margin-top: 15px; font-size: 0.8em; opacity: 0.6; color: var(--text-muted); line-height: 1.4;">
                 &copy; 2025 AJP-Logic<br>Todos los derechos reservados.
             </div>

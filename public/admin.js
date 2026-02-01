@@ -122,12 +122,7 @@ function initTablero() {
     if (!externalContainer && adminContainer) {
         externalContainer = document.createElement('div');
         externalContainer.id = 'admin-external-controls';
-        externalContainer.style.width = '100%';
-        externalContainer.style.maxWidth = '850px';
-        externalContainer.style.display = 'flex';
-        externalContainer.style.flexDirection = 'column';
-        externalContainer.style.gap = '10px';
-        externalContainer.style.marginTop = '20px';
+        externalContainer.className = 'admin-tools-wrapper'; // Usar clase CSS Grid
 
         // Insertar después del contenedor principal
         adminContainer.parentNode.insertBefore(externalContainer, adminContainer.nextSibling);
@@ -184,6 +179,15 @@ function initTablero() {
         if (bolasExtraidas.length > 0) togglePatternConfig(true);
     }
 
+    // --- PANEL DE ACCIONES (AGRUPADOR) ---
+    let actionsPanel = document.getElementById('admin-actions-panel');
+    if (!actionsPanel) {
+        actionsPanel = document.createElement('div');
+        actionsPanel.id = 'admin-actions-panel';
+        actionsPanel.className = 'admin-actions-panel';
+        targetContainer.appendChild(actionsPanel);
+    }
+
     // --- BOTÓN DE SOLICITUDES ---
     if (!document.getElementById('btn-requests')) {
         const btn = document.createElement('button');
@@ -195,7 +199,7 @@ function initTablero() {
         btn.onclick = () => {
             verSolicitudesEnModal();
         };
-        targetContainer.appendChild(btn);
+        actionsPanel.appendChild(btn); // Añadir al panel agrupado
     }
 
     // --- ALMACÉN DE SOLICITUDES (OCULTO) ---
@@ -225,7 +229,7 @@ function initTablero() {
         btn.className = 'btn-outline';
         btn.textContent = '🏆 HISTORIAL DE GANADORES';
         btn.onclick = window.verHistorialGanadores;
-        targetContainer.appendChild(btn);
+        actionsPanel.appendChild(btn);
     }
 
     // INYECTAR BOTÓN HISTORIAL PARTIDAS
@@ -235,7 +239,7 @@ function initTablero() {
         btn.className = 'btn-outline';
         btn.textContent = '📜 HISTORIAL DE PARTIDAS';
         btn.onclick = window.verHistorialPartidas;
-        targetContainer.appendChild(btn);
+        actionsPanel.appendChild(btn);
     }
 
     // INYECTAR BOTÓN PANTALLA COMPLETA
@@ -245,7 +249,7 @@ function initTablero() {
         btn.className = 'btn-outline';
         btn.textContent = '⛶ PANTALLA COMPLETA';
         btn.onclick = toggleFullScreen;
-        targetContainer.appendChild(btn);
+        actionsPanel.appendChild(btn);
     }
 
     // INYECTAR BOTÓN CERRAR SESIÓN
@@ -257,7 +261,7 @@ function initTablero() {
         btn.style.color = 'var(--danger)';
         btn.textContent = '🔒 CERRAR SESIÓN';
         btn.onclick = window.cerrarSesionAdmin;
-        targetContainer.appendChild(btn);
+        actionsPanel.appendChild(btn);
     }
 
     // INYECTAR MODAL ADMIN (Para ver detalles)
@@ -280,6 +284,7 @@ function initTablero() {
     // Inicializar color del slider
     const slider = document.getElementById('speed-slider');
     if (slider) updateAutoSpeed(slider.value);
+    initInstallButtonAdmin(); // Asegurar botón PWA
 }
 
 // 3. Función Principal: Extraer y Anunciar Bola
@@ -1329,6 +1334,20 @@ window.instalarPWA = function () {
         });
     }
 };
+
+// Crear botón de instalación PWA si no existe (para admin)
+function initInstallButtonAdmin() {
+    if (document.getElementById('btn-install-pwa')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'btn-install-pwa';
+    btn.className = 'btn-install-pwa'; // Usa la clase definida en style.css
+    btn.innerHTML = '⬇';
+    btn.title = 'Instalar App';
+    btn.onclick = instalarPWA;
+    // Se añade al body para que el posicionamiento absoluto funcione respecto a la ventana
+    document.body.appendChild(btn);
+}
 
 // --- SISTEMA DE LOGIN ---
 function mostrarLoginAdmin(errorMsg = "") {
