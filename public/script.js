@@ -600,50 +600,74 @@ function reclamarBingoIndividual(cartonObj) {
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('marcado-')) todosMarcados.push(key.replace('marcado-', ''));
     });
+    const marcadosSet = new Set(todosMarcados);
 
-    if (todosMarcados.length < 4) {
-        mostrarModal("⚠️ ATENCIÓN", "¡Necesitas marcar más números antes de cantar Bingo!", 'warning');
+    // Validación local del patrón antes de enviar
+    const matrix = convertirA_Matriz(cartonObj.data);
+    let aciertos = 0;
+    let totalNecesario = 5;
+
+    const contarAciertos = (coords) => {
+        let count = 0;
+        coords.forEach(([r, c]) => {
+            const val = matrix[r][c];
+            if (val === 'FREE' || marcadosSet.has(String(val))) count++;
+        });
+        return count;
+    };
+
+    if (currentPattern === 'full') {
+        totalNecesario = 25;
+        const todas = [];
+        for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) todas.push([r, c]);
+        aciertos = contarAciertos(todas);
+    } else if (currentPattern === 'corners') {
+        totalNecesario = 4;
+        aciertos = contarAciertos([[0, 0], [0, 4], [4, 0], [4, 4]]);
+    } else if (currentPattern === 'letterX') {
+        totalNecesario = 9;
+        const coords = [];
+        for (let i = 0; i < 5; i++) coords.push([i, i]);
+        for (let i = 0; i < 5; i++) if (i !== 2) coords.push([i, 4 - i]);
+        aciertos = contarAciertos(coords);
+    } else if (currentPattern === 'cross') {
+        totalNecesario = 9;
+        const coords = [];
+        for (let i = 0; i < 5; i++) coords.push([2, i]);
+        for (let i = 0; i < 5; i++) if (i !== 2) coords.push([i, 2]);
+        aciertos = contarAciertos(coords);
+    } else if (currentPattern === 'diagonal') {
+        totalNecesario = 5;
+        let maxDiag = 0;
+        maxDiag = Math.max(maxDiag, contarAciertos([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]));
+        maxDiag = Math.max(maxDiag, contarAciertos([[0, 4], [1, 3], [2, 2], [3, 1], [4, 0]]));
+        aciertos = maxDiag;
+    } else {
+        // LINEA
+        totalNecesario = 5;
+        let maxLinea = 0;
+        for (let i = 0; i < 5; i++) {
+            maxLinea = Math.max(maxLinea, contarAciertos([[i, 0], [i, 1], [i, 2], [i, 3], [i, 4]]));
+            maxLinea = Math.max(maxLinea, contarAciertos([[0, i], [1, i], [2, i], [3, i], [4, i]]));
+        }
+        maxLinea = Math.max(maxLinea, contarAciertos([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]));
+        maxLinea = Math.max(maxLinea, contarAciertos([[0, 4], [1, 3], [2, 2], [3, 1], [4, 0]]));
+        aciertos = maxLinea;
+    }
+
+    if (aciertos < totalNecesario) {
+        mostrarModal("❌ NO TIENES BINGO", "Aún te faltan números para completar el patrón.", 'error');
+        reproducirSonido('audio-fail');
         return;
     }
 
-    mostrarModalConfirmacionBingo(cartonObj, todosMarcados);
-}
-
-function mostrarModalConfirmacionBingo(cartonObj, todosMarcados) {
-    reproducirSonido('audio-suspense'); // Iniciar sonido de tensión
-    const modal = document.getElementById('custom-modal');
-    const content = modal.querySelector('.modal-content');
-    content.classList.remove('about-modal-pulse');
-
-    // Guardar estructura original para restaurarla después
-    if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
-
-    content.innerHTML = `
-        <div style="font-size:3.5rem; margin-bottom:15px; animation: pulse 1.5s infinite;">🎤</div>
-        <h2 style="color:var(--gold-solid); margin-bottom:10px; text-transform:uppercase; font-size:1.8rem;">¿Cantar Bingo?</h2>
-        <p style="color:white; font-size:1.1em; margin-bottom:5px;">Vas a reclamar victoria con el <br><strong style="color:var(--gold-solid); font-size:1.2em;">Cartón ${cartonObj.id}</strong></p>
-        <p style="color:var(--text-muted); font-size:0.9em; margin-bottom:25px;">Asegúrate de tener la línea completa correctamente marcada.</p>
-        
-        <div style="display:flex; gap:15px; justify-content:center; width:100%;">
-            <button onclick="cerrarModal()" style="flex:1; background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text-muted);">CANCELAR</button>
-            <button id="btn-confirm-bingo" style="flex:1; background:var(--gold-gradient); color:black; font-weight:800; box-shadow:0 0 20px rgba(51,107,135,0.3);">¡SÍ, BINGO!</button>
-        </div>
-    `;
-
-    document.getElementById('btn-confirm-bingo').onclick = function () {
-        const cartonMatrix = convertirA_Matriz(cartonObj.data);
-        socket.emit('reclamar-bingo', {
-            numeros: todosMarcados,
-            carton: cartonMatrix,
-            cartonId: cartonObj.id
-        });
-        // Restaurar estructura para que mostrarModal funcione correctamente
-        detenerSonido('audio-suspense'); // Detener sonido al confirmar
-        if (window.originalModalContent) content.innerHTML = window.originalModalContent;
-        mostrarModal("⏳ ENVIADO", `Tu cartón ${cartonObj.id} ha sido enviado al administrador para validación.`, 'info');
-    };
-
-    modal.style.display = 'flex';
+    const cartonMatrix = convertirA_Matriz(cartonObj.data);
+    socket.emit('reclamar-bingo', {
+        numeros: todosMarcados,
+        carton: cartonMatrix,
+        cartonId: cartonObj.id
+    });
+    mostrarModal("⏳ ENVIADO", `Tu cartón ${cartonObj.id} ha sido enviado al administrador para validación.`, 'info');
 }
 
 function convertirA_Matriz(columnas) {
@@ -1611,13 +1635,16 @@ function mostrarAcercaDe() {
             <p style="color: white; margin-bottom: 5px; font-size: 1.1em;">Desarrollado por <strong>AJP-Logic</strong></p>
             
             <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.1);">
-                <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 5px;">Versión 2.00</p>
+                <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 5px;">Versión 3.00</p>
                 <p style="color: var(--text-muted); font-size: 0.9em;">Fecha de actualización: ${new Date().toLocaleDateString()}</p>
             </div>
             
             <div style="text-align: left; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 12px; max-height: 150px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px;">
                 <h4 style="color: var(--gold-solid); margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase;">Historial de Cambios</h4>
                 <ul style="list-style: none; padding: 0; font-size: 0.85em; color: var(--text-muted);">
+                    <li style="margin-bottom: 8px;">
+                        <strong style="color: white;">v3.00</strong> - Mejoras en PWA, iconos adaptativos y optimización de rendimiento.
+                    </li>
                     <li style="margin-bottom: 8px;">
                         <strong style="color: white;">v2.00</strong> - Actualización mayor de UI, sistema de chat, PWA y optimización móvil.
                     </li>

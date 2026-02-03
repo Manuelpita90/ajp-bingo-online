@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 
 const app = express();
 const server = http.createServer(app);
@@ -28,43 +29,47 @@ let currentWinningPattern = 'linea'; // Patrón de victoria por defecto
 const WINNERS_FILE = path.join(__dirname, 'winners.json');
 const GAMES_FILE = path.join(__dirname, 'games_history.json');
 
-function loadWinners() {
+async function loadWinners() {
     try {
-        if (fs.existsSync(WINNERS_FILE)) {
-            const data = fs.readFileSync(WINNERS_FILE, 'utf8');
-            return data ? JSON.parse(data) : [];
-        }
-    } catch (e) { console.error("Error leyendo/parseando ganadores:", e); }
+        // Usamos flag 'a+' para abrir o crear si no existe, pero para leer es mejor catch
+        const data = await fsPromises.readFile(WINNERS_FILE, 'utf8');
+        return data ? JSON.parse(data) : [];
+    } catch (e) {
+        if (e.code !== 'ENOENT') console.error("Error leyendo/parseando ganadores:", e);
+    }
     return [];
 }
 
-function saveWinner(winner) {
-    const list = loadWinners();
+async function saveWinner(winner) {
+    const list = await loadWinners();
     list.unshift(winner); // Añadir al principio
     try {
-        fs.writeFileSync(WINNERS_FILE, JSON.stringify(list, null, 2));
+        await fsPromises.writeFile(WINNERS_FILE, JSON.stringify(list, null, 2));
     } catch (e) { console.error("Error guardando ganador:", e); }
 }
 
-function clearWinners() {
+async function clearWinners() {
     try {
-        if (fs.existsSync(WINNERS_FILE)) fs.unlinkSync(WINNERS_FILE);
-    } catch (e) { console.error("Error borrando historial:", e); }
+        await fsPromises.unlink(WINNERS_FILE);
+    } catch (e) {
+        if (e.code !== 'ENOENT') console.error("Error borrando historial:", e);
+    }
 }
 
-function saveGameHistory(gameData) {
+async function saveGameHistory(gameData) {
     let history = [];
     try {
-        if (fs.existsSync(GAMES_FILE)) {
-            history = JSON.parse(fs.readFileSync(GAMES_FILE, 'utf8'));
-        }
-    } catch (e) { console.error("Error leyendo historial partidas:", e); }
+        const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
+        history = JSON.parse(data);
+    } catch (e) {
+        if (e.code !== 'ENOENT') console.error("Error leyendo historial partidas:", e);
+    }
 
     history.unshift(gameData);
     if (history.length > 20) history = history.slice(0, 20); // Guardar últimas 20
 
     try {
-        fs.writeFileSync(GAMES_FILE, JSON.stringify(history, null, 2));
+        await fsPromises.writeFile(GAMES_FILE, JSON.stringify(history, null, 2));
     } catch (e) { console.error("Error guardando historial partidas:", e); }
 }
 
@@ -257,12 +262,11 @@ io.on('connection', (socket) => {
     });
 
     // 9. Admin solicita historial de partidas pasadas
-    socket.on('admin-solicitar-historial-partidas', () => {
+    socket.on('admin-solicitar-historial-partidas', async () => {
         let history = [];
         try {
-            if (fs.existsSync(GAMES_FILE)) {
-                history = JSON.parse(fs.readFileSync(GAMES_FILE, 'utf8'));
-            }
+            const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
+            history = JSON.parse(data);
         } catch (e) { }
         socket.emit('admin-historial-partidas', history);
     });
@@ -332,7 +336,7 @@ io.on('connection', (socket) => {
     });
 
     // 4. Lógica de Reclamación de Bingo (Jugador -> Servidor -> Admin)
-    socket.on('reclamar-bingo', (data) => {
+    socket.on('reclamar-bingo', async (data) => {
         console.log(`¡Reclamación de Bingo de socket: ${socket.id}!`);
 
         const payloadBase = {
@@ -451,7 +455,7 @@ io.on('connection', (socket) => {
         const resultado = validarBingo(matrixToValidate, data.numeros);
 
         // Datos extendidos del ganador
-        const winnersList = loadWinners();
+        const winnersList = await loadWinners();
         const winnerRank = winnersList.length + 1;
         const nombreJugador = socket.data.nombre || 'Anónimo';
 
@@ -486,7 +490,7 @@ io.on('connection', (socket) => {
                 valid: true,
                 timestamp: new Date().toISOString()
             };
-            saveWinner(winnerData);
+            await saveWinner(winnerData);
 
             socket.emit('bingo-validado', { message: '¡Tu Bingo cumple condiciones (línea válida y números cantados)!' });
             console.log(`Bingo válido para socket ${socket.id}.`);
@@ -504,7 +508,7 @@ io.on('connection', (socket) => {
     });
 
     // Evento para que un cliente se registre como admin
-    socket.on('admin-join', (token) => {
+    socket.on('admin-join', async (token) => {
         if (token !== ADMIN_TOKEN) {
             console.warn(`Intento de acceso admin fallido desde ${socket.id}`);
             socket.emit('admin-error', 'Credenciales inválidas');
@@ -513,17 +517,17 @@ io.on('connection', (socket) => {
         socket.join('admins');
         console.log(`Socket ${socket.id} autenticado como ADMIN.`);
         // Enviar historial persistente al conectar
-        socket.emit('historial-ganadores', loadWinners());
+        socket.emit('historial-ganadores', await loadWinners());
         emitirJugadoresListos(); // Enviar conteo actual al admin
         socket.emit('sync-patron', currentWinningPattern); // Sincronizar patrón actual al conectar admin
     });
 
     // 5. Reinicio del Juego
-    socket.on('reiniciar-juego', () => {
+    socket.on('reiniciar-juego', async () => {
         // Guardar partida actual en el historial antes de borrar
         if (bolasCantadas.length > 0) {
-            const winners = loadWinners();
-            saveGameHistory({
+            const winners = await loadWinners();
+            await saveGameHistory({
                 timestamp: new Date().toISOString(),
                 ballsCalled: bolasCantadas.length,
                 winnerCount: winners.length,
@@ -531,7 +535,7 @@ io.on('connection', (socket) => {
             });
         }
         bolasCantadas = [];
-        clearWinners(); // Borrar archivo al iniciar nueva partida
+        await clearWinners(); // Borrar archivo al iniciar nueva partida
 
         // Limpiar estado de cartones en el servidor para evitar duplicados
         activeCartones.clear();

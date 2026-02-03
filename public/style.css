@@ -451,8 +451,8 @@ h1 {
 }
 
 .called-highlight {
-    border: 2px solid var(--gold-solid) !important;
-    box-shadow: 0 0 15px rgba(51, 107, 135, 0.4) !important;
+    border: 2px solid #E2E8E4 !important;
+    box-shadow: 0 0 15px rgba(226, 232, 228, 0.4) !important;
 }
 
 @keyframes pulse-update {

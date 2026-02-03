@@ -1,7 +1,7 @@
 {
-  "name": "Bingo-AJP",
-  "short_name": "Bingo",
-  "start_url": "./index.html",
+  "name": "Bingo.Admin",
+  "short_name": "Bingo Admin",
+  "start_url": "./admin.html",
   "display": "standalone",
   "background_color": "#05070a",
   "theme_color": "#336B87",
