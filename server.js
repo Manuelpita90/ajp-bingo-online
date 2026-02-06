@@ -90,7 +90,13 @@ function emitirJugadoresListos() {
             }
         }
     }
-    io.emit('jugadores-listos', count);
+
+    // MODIFICADO: Enviar desglose para validación de inicio de partida
+    const totalSockets = io.sockets.sockets ? io.sockets.sockets.size : 0;
+    const adminsRoom = io.sockets.adapter.rooms.get('admins');
+    const adminCount = adminsRoom ? adminsRoom.size : 0;
+
+    io.emit('jugadores-listos', { ready: count, total: totalSockets, admins: adminCount });
     io.emit('cartones-en-juego', activeCartones.size);
     // Enviar lista detallada a los administradores
     io.to('admins').emit('admin-lista-jugadores', detalles);
@@ -100,6 +106,7 @@ io.on('connection', (socket) => {
     // 1. Manejo de Conexiones
     usuariosConectados++;
     console.log(`Nueva conexión. Total: ${usuariosConectados}`);
+    emitirJugadoresListos(); // Actualizar contadores inmediatamente al conectar
 
     // Guardar nombre si el cliente lo envía (para reconexiones)
     socket.on('registrar-nombre', (nombre) => {
@@ -261,6 +268,55 @@ io.on('connection', (socket) => {
         emitirJugadoresListos();
     });
 
+    // NUEVO: Admin solicita lista de jugadores sin cartón
+    socket.on('admin-solicitar-sin-carton', () => {
+        const sinCarton = [];
+        if (io.sockets && io.sockets.sockets) {
+            for (const [id, s] of io.sockets.sockets) {
+                // Filtrar: No es admin Y (no tiene set de cartones O el set está vacío)
+                if (!s.rooms.has('admins') && (!s.data.cartonIds || s.data.cartonIds.size === 0)) {
+                    sinCarton.push({ id: id, nombre: s.data.nombre || 'Anónimo' });
+                }
+            }
+        }
+        socket.emit('admin-lista-sin-carton', sinCarton);
+    });
+
+    // NUEVO: Admin solicita lista de IPs para detectar duplicados
+    socket.on('admin-solicitar-ips', () => {
+        if (!socket.rooms.has('admins')) {
+            console.log(`Solicitud de IPs denegada a ${socket.id} (No es admin)`);
+            return;
+        }
+
+        const lista = [];
+        if (io.sockets && io.sockets.sockets) {
+            for (const [id, s] of io.sockets.sockets) {
+                // Obtener IP real (considerando proxies como Render/Nginx)
+                let ip = s.handshake.address;
+                if (s.handshake.headers && s.handshake.headers['x-forwarded-for']) {
+                    ip = s.handshake.headers['x-forwarded-for'].split(',')[0];
+                }
+
+                lista.push({
+                    id: id,
+                    nombre: s.data.nombre || 'Anónimo',
+                    ip: ip,
+                    esAdmin: s.rooms.has('admins'),
+                    cartones: s.data.cartonIds ? s.data.cartonIds.size : 0
+                });
+            }
+        }
+        socket.emit('admin-lista-ips', lista);
+    });
+
+    // Admin envía susurro (mensaje privado)
+    socket.on('admin-susurro', (data) => {
+        if (socket.rooms.has('admins')) {
+            io.to(data.targetId).emit('mensaje-privado', { mensaje: data.mensaje });
+        }
+    });
+
     // 9. Admin solicita historial de partidas pasadas
     socket.on('admin-solicitar-historial-partidas', async () => {
         let history = [];
@@ -311,6 +367,17 @@ io.on('connection', (socket) => {
         io.to(data.socketId).emit('solicitud-rechazada', { motivo: data.motivo });
     });
 
+    // Notificación de jugador listo (selección completada)
+    socket.on('jugador-completo-seleccion', (data) => {
+        const adminsRoom = io.sockets.adapter.rooms.get('admins');
+        if (adminsRoom && adminsRoom.size > 0) {
+            io.to('admins').emit('admin-aviso-jugador-listo', {
+                nombre: socket.data.nombre || 'Anónimo',
+                cantidad: data.cantidad
+            });
+        }
+    });
+
     // --- GESTIÓN DE CARTONES FIJOS (1-100) ---
     socket.on('obtener-cartones-disponibles', (callback) => {
         const ocupados = new Set();
@@ -324,6 +391,14 @@ io.on('connection', (socket) => {
 
     // --- CHAT GLOBAL ---
     socket.on('chat-mensaje', (data) => {
+        // VALIDACIÓN: Evitar mensajes vacíos o excesivamente largos (máx 200 caracteres)
+        if (!data.texto || typeof data.texto !== 'string') return;
+
+        const textoLimpio = data.texto.trim();
+        if (textoLimpio.length === 0 || textoLimpio.length > 200) return;
+
+        data.texto = textoLimpio; // Usar el texto limpio para el envío
+
         // SEGURIDAD: Determinar si es admin basado en la sala, no en lo que envía el cliente
         const isAdmin = socket.rooms.has('admins');
         data.timestamp = new Date().toISOString();
@@ -492,7 +567,10 @@ io.on('connection', (socket) => {
             };
             await saveWinner(winnerData);
 
-            socket.emit('bingo-validado', { message: '¡Tu Bingo cumple condiciones (línea válida y números cantados)!' });
+            socket.emit('bingo-validado', {
+                message: '¡Tu Bingo cumple condiciones (línea válida y números cantados)!',
+                cartonId: data.cartonId
+            });
             console.log(`Bingo válido para socket ${socket.id}.`);
 
             // Anunciar a TODOS los jugadores quién ganó
@@ -502,7 +580,10 @@ io.on('connection', (socket) => {
                 cartonId: data.cartonId
             });
         } else {
-            socket.emit('bingo-rechazado', { message: `Reclamo inválido: ${resultado.reason}` });
+            socket.emit('bingo-rechazado', {
+                message: `Reclamo inválido: ${resultado.reason}`,
+                cartonId: data.cartonId
+            });
             console.log(`Bingo inválido para socket ${socket.id}: ${resultado.reason}`);
         }
     });
@@ -524,6 +605,12 @@ io.on('connection', (socket) => {
 
     // 5. Reinicio del Juego
     socket.on('reiniciar-juego', async () => {
+        // SEGURIDAD: Verificar que quien reinicia es realmente un admin
+        if (!socket.rooms.has('admins')) {
+            socket.emit('admin-action-error', 'No tienes permisos de administrador para reiniciar.');
+            return;
+        }
+
         // Guardar partida actual en el historial antes de borrar
         if (bolasCantadas.length > 0) {
             const winners = await loadWinners();

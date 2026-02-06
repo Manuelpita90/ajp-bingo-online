@@ -5,6 +5,12 @@ if (typeof io === 'undefined') {
 
 // Detectar si estamos en GitHub Pages para conectar al servidor de Render
 const isGitHubPages = window.location.hostname.includes('github.io');
+
+// FIX: Evitar que el script del jugador se ejecute en el panel de admin (evita jugador fantasma)
+if (window.location.pathname.includes('admin')) {
+    throw new Error("Script de jugador detenido en panel admin para evitar duplicidad de conexión.");
+}
+
 const socket = io(isGitHubPages ? 'https://ajp-bingo-online.onrender.com' : undefined);
 
 let historialBolas = [];
@@ -14,6 +20,7 @@ let estadoSincronizado = false;
 let esperandoSolicitud = false;
 let currentPattern = 'linea'; // Patrón actual
 let cartonesSeleccionadosTemp = new Set(); // Para el modal de selección
+let cartonesConBingoEnviado = new Set(); // Evitar spam de botón Bingo
 
 // 1. CARGA INICIAL: Revisa si hay una partida en curso en el navegador
 function cargarJuego() {
@@ -185,9 +192,13 @@ function mulberry32(a) {
 
 function generarCartonFijo(idCarton) {
     // Usamos el ID del cartón como semilla.
-    // Sumamos un offset grande para evitar patrones obvios en IDs bajos
-    const numericId = String(idCarton).replace(/\D/g, ''); // Limpiar caracteres no numéricos (#)
-    const seed = (parseInt(numericId) || 0) + 10000;
+    // MEJORA: Usar hash para soportar IDs alfanuméricos (UUID) y evitar colisiones
+    let hash = 5381;
+    const str = String(idCarton);
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i); /* hash * 33 + c */
+    }
+    const seed = Math.abs(hash);
     const rng = mulberry32(seed);
 
     // Función auxiliar que usa nuestro RNG determinista en lugar de Math.random
@@ -496,6 +507,7 @@ socket.on('limpiar-tablero', (newGameId) => {
     historialBolas = [];
     juegoIniciado = false;
     numerosCantados.clear(); // Limpiar validación
+    cartonesConBingoEnviado.clear(); // Limpiar bloqueos de envío
 
     // Resetear UI
     document.getElementById('waiting-message').style.display = 'block';
@@ -560,16 +572,43 @@ socket.on('mensaje-global', (mensaje) => {
     mostrarModal("📢 MENSAJE DEL ADMIN", mensaje, 'info');
 });
 
+socket.on('mensaje-privado', (data) => {
+    console.log("Mensaje privado recibido:", data);
+    reproducirSonido('audio-ball');
+    mostrarModal("💬 MENSAJE PRIVADO", data.mensaje, 'info');
+});
+
 // RESPUESTAS DE VALIDACIÓN DE BINGO
 socket.on('bingo-validado', (data) => {
     reproducirSonido('audio-win');
     lanzarConfeti();
     mostrarModal("🎉 ¡BINGO VÁLIDO!", data.message, 'success');
+
+    // Actualizar visualmente el botón a estado de victoria
+    if (data.cartonId) {
+        const btn = document.getElementById(`btn-bingo-${data.cartonId.replace('#', '')}`);
+        if (btn) {
+            btn.textContent = '🏆';
+            btn.classList.add('bingo-ready');
+        }
+    }
 });
 
 socket.on('bingo-rechazado', (data) => {
     reproducirSonido('audio-fail');
     mostrarModal("❌ BINGO RECHAZADO", data.message, 'error');
+
+    // Desbloquear el botón para permitir reintentar
+    if (data.cartonId) {
+        cartonesConBingoEnviado.delete(data.cartonId);
+        const btn = document.getElementById(`btn-bingo-${data.cartonId.replace('#', '')}`);
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '¡BINGO!';
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    }
 });
 
 // NUEVO: Mostrar anuncio global de ganador
@@ -596,6 +635,12 @@ socket.on('anuncio-ganador', (data) => {
 
 // Función para cantar Bingo de un cartón específico
 function reclamarBingoIndividual(cartonObj) {
+    // VALIDACIÓN: Si ya se envió este cartón, no hacer nada
+    if (cartonesConBingoEnviado.has(cartonObj.id)) {
+        mostrarModal("⏳ YA ENVIADO", `El cartón ${cartonObj.id} ya está en proceso de validación.`, 'warning');
+        return;
+    }
+
     const todosMarcados = [];
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('marcado-')) todosMarcados.push(key.replace('marcado-', ''));
@@ -659,6 +704,17 @@ function reclamarBingoIndividual(cartonObj) {
         mostrarModal("❌ NO TIENES BINGO", "Aún te faltan números para completar el patrón.", 'error');
         reproducirSonido('audio-fail');
         return;
+    }
+
+    // BLOQUEO: Marcar como enviado y deshabilitar botón visualmente
+    cartonesConBingoEnviado.add(cartonObj.id);
+    const btnId = `btn-bingo-${cartonObj.id.replace('#', '')}`;
+    const btn = document.getElementById(btnId);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner-loader"></div>';
+        btn.style.opacity = '1';
+        btn.style.cursor = 'wait';
     }
 
     const cartonMatrix = convertirA_Matriz(cartonObj.data);
@@ -1474,6 +1530,9 @@ window.confirmarSeleccionCartones = function (cantidad) {
             }
         });
     });
+
+    // Notificar al servidor que se ha completado la selección
+    socket.emit('jugador-completo-seleccion', { cantidad: cartonesSeleccionadosTemp.size });
 };
 
 // --- CHAT SYSTEM ---
@@ -1596,7 +1655,20 @@ socket.on('chat-nuevo-mensaje', (data) => {
     div.className = `chat-msg ${clase}`;
 
     const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    div.innerHTML = `<strong>${data.usuario}:</strong> ${data.texto}<div class="chat-time">${time}</div>`;
+
+    // SEGURIDAD: Usar textContent para evitar XSS
+    const userStrong = document.createElement('strong');
+    userStrong.textContent = data.usuario + ': ';
+
+    const msgText = document.createTextNode(data.texto);
+
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'chat-time';
+    timeDiv.textContent = time;
+
+    div.appendChild(userStrong);
+    div.appendChild(msgText);
+    div.appendChild(timeDiv);
 
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;

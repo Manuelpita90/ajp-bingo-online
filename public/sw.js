@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bingo-ajp-v1';
+const CACHE_NAME = 'bingo-ajp-v3';
 const ASSETS = [
   './',
   './index.html',

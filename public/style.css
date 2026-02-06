@@ -1143,6 +1143,11 @@ button:active {
     box-shadow: 0 5px 15px rgba(239, 68, 68, 0.2);
 }
 
+.admin-notification.info {
+    border-left-color: var(--gold-solid);
+    box-shadow: 0 5px 15px rgba(51, 107, 135, 0.2);
+}
+
 .notif-header {
     display: flex;
     justify-content: space-between;
@@ -1663,5 +1668,22 @@ button:active {
 
     .modal-content {
         padding: 1.5rem;
+    }
+}
+
+/* SPINNER DE CARGA */
+.spinner-loader {
+    width: 18px;
+    height: 18px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #ffffff;
+    animation: spin-loader 1s ease-in-out infinite;
+    display: inline-block;
+}
+
+@keyframes spin-loader {
+    to {
+        transform: rotate(360deg);
     }
 }

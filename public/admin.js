@@ -23,6 +23,8 @@ const totalBolas = 75;
 let juegoPausado = false;
 let isAnimating = false;
 let cachedPlayerCount = 0;
+let cachedTotalPlayers = 0;
+let cachedAdmins = 0;
 let cachedCardCount = 0;
 let viewingPlayersList = false;
 let currentWinnersList = []; // Almacén local de ganadores
@@ -32,6 +34,7 @@ let autoPlayInterval = null;
 let autoPlaySpeed = 4000;
 let voiceEnabled = true;
 let currentPattern = 'linea'; // Estado local del patrón
+let lastPendingCount = -1; // Para detectar cuando todos están listos
 
 socket.on('admin-error', (msg) => {
     sessionStorage.removeItem('admin-token');
@@ -81,6 +84,7 @@ function initTablero() {
         statusBar.innerHTML = `
             <div style="display:flex; gap:15px">
                 <div onclick="verDetallesJugadores()" style="cursor:pointer" title="Ver lista de Jugadores">👥 JUGADORES: <span id="player-count" style="color:white; font-size:1.2em">${cachedPlayerCount}</span></div>
+                <div onclick="verJugadoresSinCarton()" title="Ver jugadores pendientes" style="cursor:pointer">⏳ FALTAN: <span id="pending-count" style="color:var(--text-muted); font-size:1.2em">0</span></div>
                 <div onclick="verDetallesCartones()" style="cursor:pointer" title="Ver lista de IDs">🎫 CARTONES: <span id="card-count" style="color:white; font-size:1.2em">${cachedCardCount}</span></div>
                 <div title="Total de bolas extraídas">🎱 BOLAS: <span id="balls-count" style="color:white; font-size:1.2em">${bolasExtraidas.length}</span></div>
                 <div title="Tiempo transcurrido">⏱️ <span id="game-timer" style="color:white; font-size:1.2em">00:00</span></div>
@@ -228,7 +232,14 @@ function initTablero() {
         btn.id = 'btn-winners';
         btn.className = 'btn-outline';
         btn.textContent = '🏆 HISTORIAL DE GANADORES';
-        btn.onclick = window.verHistorialGanadores;
+        btn.onclick = function () {
+            console.log("Botón Historial Ganadores presionado");
+            if (window.verHistorialGanadores) {
+                window.verHistorialGanadores();
+            } else {
+                console.error("Función verHistorialGanadores no encontrada. Intenta recargar la página (Ctrl+F5).");
+            }
+        };
         actionsPanel.appendChild(btn);
     }
 
@@ -239,6 +250,23 @@ function initTablero() {
         btn.className = 'btn-outline';
         btn.textContent = '📜 HISTORIAL DE PARTIDAS';
         btn.onclick = window.verHistorialPartidas;
+        actionsPanel.appendChild(btn);
+    }
+
+    // INYECTAR BOTÓN VER IPs
+    if (!document.getElementById('btn-ips')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-ips';
+        btn.className = 'btn-outline';
+        btn.textContent = '🌐 CONEXIONES / IPs';
+        btn.onclick = function () {
+            console.log("Botón IPs presionado");
+            if (window.verListaIPs) {
+                window.verListaIPs();
+            } else {
+                console.error("Función verListaIPs no encontrada. Intenta recargar la página (Ctrl+F5).");
+            }
+        };
         actionsPanel.appendChild(btn);
     }
 
@@ -265,11 +293,24 @@ function initTablero() {
     }
 
     // INYECTAR MODAL ADMIN (Para ver detalles)
+    ensureAdminModal();
+    initChatAdmin();
+
+    // Inicializar color del slider
+    const slider = document.getElementById('speed-slider');
+    if (slider) updateAutoSpeed(slider.value);
+    initInstallButtonAdmin(); // Asegurar botón PWA
+}
+
+// NUEVO: Función de seguridad para garantizar que el modal existe
+function ensureAdminModal() {
     if (!document.getElementById('admin-modal')) {
+        console.log("Creando modal de admin dinámicamente...");
         const modal = document.createElement('div');
         modal.id = 'admin-modal';
         modal.className = 'modal-overlay';
         modal.style.display = 'none';
+        modal.style.zIndex = '15000'; // Asegurar que esté por encima de todo
         modal.innerHTML = `
             <div class="modal-content" style="width: 600px; max-width: 95%;">
                 <h2 id="admin-modal-title">TITULO</h2>
@@ -279,17 +320,16 @@ function initTablero() {
         `;
         document.body.appendChild(modal);
     }
-    initChatAdmin();
-
-    // Inicializar color del slider
-    const slider = document.getElementById('speed-slider');
-    if (slider) updateAutoSpeed(slider.value);
-    initInstallButtonAdmin(); // Asegurar botón PWA
 }
 
 // 3. Función Principal: Extraer y Anunciar Bola
 function extraerBola() {
     if (isAnimating) return;
+
+    // VALIDACIÓN: Impedir inicio si hay pendientes
+    if (bolasExtraidas.length === 0) {
+        if (!validarInicioJuego()) return;
+    }
 
     if (juegoPausado) {
         if (confirm("⛔ El juego está PAUSADO tras un Bingo válido.\n¿Ya has verificado el cartón y deseas continuar?")) {
@@ -454,6 +494,11 @@ window.toggleAutomatico = function () {
     if (autoPlayInterval) {
         detenerAutomatico();
     } else {
+        // VALIDACIÓN: Impedir inicio automático si hay pendientes
+        if (bolasExtraidas.length === 0) {
+            if (!validarInicioJuego()) return;
+        }
+
         if (juegoPausado) {
             alert("El juego está pausado. Debes reanudarlo antes de activar el modo automático.");
             return;
@@ -495,16 +540,122 @@ window.detenerAutomatico = function () {
 };
 
 // 4. Gestión de Eventos del Servidor
-socket.on('jugadores-listos', (cantidad) => {
-    cachedPlayerCount = cantidad;
+socket.on('jugadores-listos', (data) => {
+    // Soporte para el nuevo formato de objeto
+    if (typeof data === 'object') {
+        cachedPlayerCount = data.ready;
+        cachedTotalPlayers = data.total;
+        cachedAdmins = data.admins;
+    } else {
+        cachedPlayerCount = data;
+    }
+
     const contadorUI = document.getElementById('player-count');
     if (contadorUI) {
-        contadorUI.textContent = cantidad;
+        contadorUI.textContent = cachedPlayerCount;
         // Pequeña animación de actualización
         contadorUI.style.color = 'var(--gold-solid)';
         setTimeout(() => contadorUI.style.color = 'white', 500);
     }
+
+    const pendingUI = document.getElementById('pending-count');
+    if (pendingUI) {
+        const realPlayers = Math.max(0, cachedTotalPlayers - cachedAdmins);
+        const pending = Math.max(0, realPlayers - cachedPlayerCount);
+
+        // Notificación sonora suave cuando todos están listos
+        if (pending === 0 && lastPendingCount > 0) {
+            const audio = new Audio('sounds/pop.mp3');
+            audio.volume = 0.5;
+            audio.play().catch(() => { });
+        }
+        lastPendingCount = pending;
+
+        pendingUI.textContent = pending;
+        pendingUI.style.color = pending > 0 ? 'var(--danger)' : 'var(--success)';
+
+        // Actualizar título del modal si estamos viendo solicitudes
+        updateRequestsModalTitle();
+
+        // Refrescar lista de jugadores sin cartón si está visible
+        const modal = document.getElementById('admin-modal');
+        const title = document.getElementById('admin-modal-title');
+        if (modal && modal.style.display === 'flex' && title && title.textContent.includes('SIN CARTÓN')) {
+            socket.emit('admin-solicitar-sin-carton');
+        }
+    }
 });
+
+// Notificación cuando un jugador termina de elegir cartones
+socket.on('admin-aviso-jugador-listo', (data) => {
+    mostrarToastInfo("JUGADOR LISTO", `${data.nombre} ha seleccionado ${data.cantidad} cartones.`);
+
+    // Sonido suave
+    const audio = new Audio('sounds/pop.mp3');
+    audio.volume = 0.4;
+    audio.play().catch(() => { });
+});
+
+function mostrarToastInfo(titulo, mensaje) {
+    const container = document.getElementById('admin-notif-container');
+    if (!container) return;
+
+    const notif = document.createElement('div');
+    notif.className = 'admin-notification info';
+
+    notif.innerHTML = `
+        <div class="notif-close-btn" style="position:absolute; top:5px; right:5px; padding:5px; cursor:pointer; opacity:0.6; font-weight:bold; z-index:5;">✕</div>
+        <div class="notif-header" style="color: var(--gold-solid)">
+            <span>ℹ️ ${titulo}</span>
+        </div>
+        <div class="notif-body">
+            <div style="color:white; font-size:1.05em;">${mensaje}</div>
+        </div>
+    `;
+
+    // Click en cerrar
+    const btnClose = notif.querySelector('.notif-close-btn');
+    btnClose.onclick = (e) => {
+        e.stopPropagation();
+        notif.style.opacity = '0';
+        setTimeout(() => notif.remove(), 300);
+    };
+
+    // Auto cerrar en 5 segundos
+    setTimeout(() => {
+        if (document.body.contains(notif)) {
+            notif.style.opacity = '0';
+            setTimeout(() => notif.remove(), 300);
+        }
+    }, 5000);
+
+    container.appendChild(notif);
+}
+
+// NUEVO: Función de validación para impedir comenzar la partida
+function validarInicioJuego() {
+    // 1. Verificar Solicitudes Pendientes
+    const pendingRequests = document.querySelectorAll('#requests-list div[id^="req-"]').length;
+    if (pendingRequests > 0) {
+        alert(`⛔ INICIO BLOQUEADO\n\nHay ${pendingRequests} solicitud(es) de cartones pendiente(s).\nDebes aprobarlas o rechazarlas antes de comenzar.`);
+        // Abrir modal de solicitudes automáticamente para facilitar la gestión
+        verSolicitudesEnModal();
+        return false;
+    }
+
+    // 2. Verificar Jugadores sin Cartones
+    // Calculamos jugadores reales (Total conectados - Admins)
+    // Si hay más jugadores reales conectados que jugadores "listos" (con cartones), bloqueamos.
+    const realPlayers = Math.max(0, cachedTotalPlayers - cachedAdmins);
+
+    if (realPlayers > cachedPlayerCount) {
+        const missing = realPlayers - cachedPlayerCount;
+        alert(`⛔ INICIO BLOQUEADO\n\nHay ${missing} jugador(es) conectado(s) que aún no han elegido sus cartones.\n\n• Conectados: ${realPlayers}\n• Listos: ${cachedPlayerCount}\n\nEspera a que todos seleccionen sus cartones.`);
+        return false;
+    }
+
+    return true;
+}
 
 socket.on('cartones-en-juego', (cantidad) => {
     cachedCardCount = cantidad;
@@ -829,6 +980,7 @@ window.verDetallesCartones = function () {
 
 socket.on('admin-detalles-cartones', (lista) => {
     safeguardRequestsList();
+    ensureAdminModal();
     const html = lista.length > 0
         ? `<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
             ${lista.map(id => `<span style="background: rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--glass-border); font-family: monospace; font-size: 1.1em; color: var(--gold-solid);">${id}</span>`).join('')}
@@ -849,6 +1001,7 @@ window.verDetallesJugadores = function () {
 socket.on('admin-lista-jugadores', (lista) => {
     if (!viewingPlayersList) return;
     safeguardRequestsList();
+    ensureAdminModal();
 
     const html = lista.length > 0
         ? `<div style="display:flex; flex-direction:column; gap:10px;">
@@ -873,6 +1026,109 @@ socket.on('admin-lista-jugadores', (lista) => {
     modal.style.display = 'flex';
 });
 
+window.enviarSusurro = function (id, nombre) {
+    const msg = prompt(`Escribe un mensaje privado para ${nombre}:`);
+    if (msg && msg.trim()) {
+        socket.emit('admin-susurro', { targetId: id, mensaje: msg.trim() });
+    }
+};
+
+window.verJugadoresSinCarton = function () {
+    socket.emit('admin-solicitar-sin-carton');
+};
+
+window.verListaIPs = function () {
+    console.log("Solicitando lista de IPs al servidor...");
+    socket.emit('admin-solicitar-ips');
+};
+
+socket.on('admin-lista-ips', (lista) => {
+    console.log("Lista de IPs recibida:", lista);
+    if (!lista) lista = []; // Protección contra nulos
+    safeguardRequestsList();
+    ensureAdminModal();
+
+    // Agrupar por IP para detectar duplicados
+    const ipMap = {};
+    lista.forEach(c => {
+        const ip = c.ip || 'Desconocida';
+        if (!ipMap[ip]) ipMap[ip] = [];
+        ipMap[ip].push(c);
+    });
+
+    let html = '';
+    if (lista.length === 0) {
+        html = '<p style="color: var(--text-muted); text-align:center;">No hay conexiones activas.</p>';
+    } else {
+        html = '<div style="display:flex; flex-direction:column; gap:10px;">';
+
+        // Ordenar: IPs con más conexiones primero
+        const sortedIPs = Object.keys(ipMap).sort((a, b) => ipMap[b].length - ipMap[a].length);
+
+        sortedIPs.forEach(ip => {
+            const conns = ipMap[ip];
+            const isDupe = conns.length > 1;
+            const color = isDupe ? 'var(--danger)' : 'var(--success)';
+            const bg = isDupe ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.05)';
+
+            html += `
+                <div style="background:${bg}; padding:10px; border-radius:8px; border-left:3px solid ${color};">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:5px;">
+                        <div>
+                            <strong style="color:white; font-family:monospace; font-size:1.1em;">${ip}</strong>
+                            ${isDupe ? '<span style="margin-left:10px; font-size:0.7em; background:var(--danger); color:white; padding:2px 6px; border-radius:4px;">DUPLICADO</span>' : ''}
+                        </div>
+                        <div style="color:${color}; font-weight:bold;">${conns.length} Conexión(es)</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:5px;">
+                        ${conns.map(c => `
+                            <div style="display:flex; justify-content:space-between; font-size:0.9em; color:var(--text-muted);">
+                                <span>
+                                    ${c.esAdmin ? '🛡️ <strong>ADMIN</strong>' : c.nombre} 
+                                    <span style="opacity:0.6; font-size:0.9em;">(ID: ${c.id.substr(0, 4)})</span>
+                                </span>
+                                <span>${c.cartones} Cartones</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+    }
+
+    const modal = document.getElementById('admin-modal');
+    document.getElementById('admin-modal-title').textContent = `🌐 CONEXIONES (${lista.length})`;
+    document.getElementById('admin-modal-body').innerHTML = html;
+    modal.style.display = 'flex';
+});
+
+socket.on('admin-lista-sin-carton', (lista) => {
+    safeguardRequestsList();
+    ensureAdminModal();
+    const html = lista.length > 0
+        ? `<div style="display:flex; flex-direction:column; gap:10px;">
+            ${lista.map(p => `
+                <div style="background:rgba(239, 68, 68, 0.1); padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; border-left:3px solid var(--danger);">
+                    <div>
+                        <div style="font-weight:bold; color:white;">${p.nombre}</div>
+                        <div style="font-size:0.8em; color:var(--text-muted);">ID: ${p.id.substr(0, 4)}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <button onclick="enviarSusurro('${p.id}', '${p.nombre}')" title="Enviar mensaje privado" style="padding:5px 10px; background:rgba(0,0,0,0.3); border:1px solid var(--gold-solid); color:white; border-radius:4px; cursor:pointer;">💬</button>
+                        <div style="color:var(--danger); font-size:0.9em; font-weight:bold;">PENDIENTE</div>
+                    </div>
+                </div>
+            `).join('')}
+           </div>`
+        : '<p style="color: var(--text-muted); text-align:center;">Todos los jugadores conectados tienen cartones.</p>';
+
+    const modal = document.getElementById('admin-modal');
+    document.getElementById('admin-modal-title').textContent = `⏳ JUGADORES SIN CARTÓN (${lista.length})`;
+    document.getElementById('admin-modal-body').innerHTML = html;
+    modal.style.display = 'flex';
+});
+
 window.cerrarModalAdmin = function () {
     safeguardRequestsList();
     viewingPlayersList = false;
@@ -881,12 +1137,17 @@ window.cerrarModalAdmin = function () {
 
 // 12. Ver Historial de Ganadores (Estilo Modal)
 window.verHistorialGanadores = function () {
+    console.log("Abriendo historial de ganadores...");
     safeguardRequestsList();
+    ensureAdminModal();
+
     let html = '';
-    if (!currentWinnersList || currentWinnersList.length === 0) {
+    const lista = (currentWinnersList && Array.isArray(currentWinnersList)) ? currentWinnersList : [];
+
+    if (lista.length === 0) {
         html = '<p style="color: var(--text-muted); text-align:center;">Aún no hay ganadores en esta partida.</p>';
     } else {
-        html = currentWinnersList.map(w => {
+        html = lista.map(w => {
             const date = w.timestamp ? new Date(w.timestamp).toLocaleTimeString() : '';
             const rank = w.winnerRank ? `#${w.winnerRank}` : '';
             return `
@@ -897,8 +1158,9 @@ window.verHistorialGanadores = function () {
                         </strong>
                         <span style="font-size:0.85em; color:var(--text-muted); font-family:monospace;">${date}</span>
                     </div>
-                    <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px;">
-                        🎫 Cartón: <span style="color:var(--gold-solid);">${w.cartonId}</span>
+                    <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>🎫 Cartón: <span style="color:var(--gold-solid);">${w.cartonId}</span></span>
+                        <span style="background:rgba(16, 185, 129, 0.1); color:var(--success); padding:2px 8px; border-radius:4px; font-size:0.85em; border:1px solid rgba(16, 185, 129, 0.2);">${w.reason || 'Bingo'}</span>
                     </div>
                     <div style="font-size:0.85em; color:var(--success);">
                         Números: ${w.winningNumbers ? w.winningNumbers.join(', ') : 'N/A'}
@@ -909,7 +1171,7 @@ window.verHistorialGanadores = function () {
     }
 
     const modal = document.getElementById('admin-modal');
-    document.getElementById('admin-modal-title').textContent = `🏆 GANADORES (${currentWinnersList.length})`;
+    document.getElementById('admin-modal-title').textContent = `🏆 GANADORES (${lista.length})`;
     document.getElementById('admin-modal-body').innerHTML = html;
     modal.style.display = 'flex';
 };
@@ -921,6 +1183,7 @@ window.verHistorialPartidas = function () {
 
 socket.on('admin-historial-partidas', (history) => {
     safeguardRequestsList();
+    ensureAdminModal();
     let html = '';
     if (!history || history.length === 0) {
         html = '<p style="color: var(--text-muted); text-align:center;">No hay partidas registradas en el historial.</p>';
@@ -1031,6 +1294,13 @@ function updateRequestsButton() {
         btn.style.backgroundColor = 'transparent';
         btn.style.borderColor = 'var(--gold-solid)';
         btn.style.color = 'var(--gold-solid)';
+
+        // Cierre automático del modal si no quedan solicitudes
+        const modal = document.getElementById('admin-modal');
+        const body = document.getElementById('admin-modal-body');
+        if (modal.style.display === 'flex' && body.contains(list)) {
+            cerrarModalAdmin();
+        }
     }
 
     const emptyMsg = document.getElementById('empty-requests-msg');
@@ -1155,7 +1425,20 @@ socket.on('chat-nuevo-mensaje', (data) => {
     // Si es admin, mostrar en rojo/distinto
 
     const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    div.innerHTML = `<strong>${data.usuario}:</strong> ${data.texto}<div class="chat-time">${time}</div>`;
+
+    // SEGURIDAD: Usar textContent para evitar XSS
+    const userStrong = document.createElement('strong');
+    userStrong.textContent = data.usuario + ': ';
+
+    const msgText = document.createTextNode(data.texto);
+
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'chat-time';
+    timeDiv.textContent = time;
+
+    div.appendChild(userStrong);
+    div.appendChild(msgText);
+    div.appendChild(timeDiv);
 
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
@@ -1163,6 +1446,7 @@ socket.on('chat-nuevo-mensaje', (data) => {
 
 function verCartonEnModal(data) {
     safeguardRequestsList();
+    ensureAdminModal();
     const modal = document.getElementById('admin-modal');
     const title = document.getElementById('admin-modal-title');
     const body = document.getElementById('admin-modal-body');
@@ -1225,19 +1509,34 @@ function verCartonEnModal(data) {
     modal.style.display = 'flex';
 }
 
+function updateRequestsModalTitle() {
+    const title = document.getElementById('admin-modal-title');
+    const list = document.getElementById('requests-list');
+    const body = document.getElementById('admin-modal-body');
+
+    // Verificar si el modal de solicitudes está activo (la lista está dentro del body del modal)
+    if (title && body && list && body.contains(list)) {
+        const realPlayers = Math.max(0, cachedTotalPlayers - cachedAdmins);
+        const pending = Math.max(0, realPlayers - cachedPlayerCount);
+
+        title.innerHTML = `📩 SOLICITUDES <span style="font-size:0.6em; margin-left:10px; color:var(--text-muted)">FALTAN: <span style="color:${pending > 0 ? 'var(--danger)' : 'var(--success)'}">${pending}</span></span>`;
+    }
+}
+
 window.verSolicitudesEnModal = function () {
     safeguardRequestsList();
+    ensureAdminModal();
     const list = document.getElementById('requests-list');
     const modal = document.getElementById('admin-modal');
-    const title = document.getElementById('admin-modal-title');
     const body = document.getElementById('admin-modal-body');
 
     if (!list) return;
 
     list.style.maxHeight = 'none';
-    title.textContent = "📩 SOLICITUDES PENDIENTES";
     body.innerHTML = '';
     body.appendChild(list);
+
+    updateRequestsModalTitle();
     modal.style.display = 'flex';
 };
 
