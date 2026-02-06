@@ -25,7 +25,13 @@ let cartonesConBingoEnviado = new Set(); // Evitar spam de botón Bingo
 // 1. CARGA INICIAL: Revisa si hay una partida en curso en el navegador
 function cargarJuego() {
     // Intentar cargar array de cartones
-    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
+    } catch (e) {
+        console.error("Datos locales corruptos, reiniciando cartones.", e);
+        localStorage.removeItem('bingo-ajp-cartones');
+    }
 
     // Migración: Si existe el formato antiguo (un solo cartón), convertirlo
     if (!cartones && localStorage.getItem('bingo-ajp-carton')) {
@@ -81,6 +87,11 @@ function registrarIdEnServidor(cartonObj) {
     const matrix = data ? convertirA_Matriz(data) : null;
 
     socket.emit('registrar-id', { id, matrix }, (response) => {
+        if (!response) {
+            console.error("El servidor no respondió a la solicitud de registro.");
+            return;
+        }
+
         if (response && response.accepted) {
             console.log(`ID ${id} registrado correctamente.`);
         } else {
@@ -96,7 +107,12 @@ function registrarIdEnServidor(cartonObj) {
             if (response && response.reason === 'INVALID_MATRIX_INTEGRITY') {
                 mostrarModal("⛔ ERROR DE INTEGRIDAD", "Se ha detectado una modificación no autorizada en tu cartón. Por seguridad, este cartón será eliminado.", "error");
                 // Eliminar cartón corrupto del storage
-                let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                let cartones = [];
+                try {
+                    cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                } catch(e) {
+                    cartones = [];
+                }
                 const nuevosCartones = cartones.filter(c => c.id !== id);
                 localStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
                 setTimeout(() => location.reload(), 3000);
@@ -107,7 +123,11 @@ function registrarIdEnServidor(cartonObj) {
             if (response && response.reason === 'MAX_CARDS_REACHED') {
                 mostrarModal("⛔ LÍMITE EXCEDIDO", "El servidor ha bloqueado este cartón porque ya tienes el máximo de 4 activos.", "error");
                 // Eliminar cartón excedente del storage local
-                let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                let cartones = [];
+                try {
+                    cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                } catch(e) { cartones = []; }
+
                 const nuevosCartones = cartones.filter(c => c.id !== id);
                 localStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
                 renderizarCartones();
@@ -117,7 +137,10 @@ function registrarIdEnServidor(cartonObj) {
             // MEJORA: Si el servidor rechaza el ID al cargar (ej. colisión o sesión fantasma),
             // intentamos regenerarlo para que el usuario no juegue con un cartón inválido.
             if (confirm(`El ID ${id} ya está en uso o hubo un error de sincronización. ¿Generar nuevo ID para este cartón?`)) {
-                const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                let cartones = [];
+                try {
+                    cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                } catch(e) { cartones = []; }
                 const index = cartones.findIndex(c => c.id === id);
                 if (index !== -1) {
                     cartones[index].id = generarIdAleatorio();
@@ -131,7 +154,10 @@ function registrarIdEnServidor(cartonObj) {
 }
 
 function agregarNuevoCarton(render = true, callback = null) {
-    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    } catch (e) { cartones = []; }
 
     if (juegoIniciado) {
         mostrarModal("⛔ ACCIÓN DENEGADA", "No puedes agregar cartones con la partida iniciada.", 'error');
@@ -154,7 +180,10 @@ function agregarNuevoCarton(render = true, callback = null) {
         if (response && response.accepted) {
 
             // CRÍTICO: Re-leer localStorage aquí para evitar condiciones de carrera
-            let cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+            let cartonesActuales = [];
+            try {
+                cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+            } catch(e) { cartonesActuales = []; }
 
             cartonesActuales.push({ id: nuevoId, data: nuevoData });
             localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
@@ -243,7 +272,11 @@ function obtenerNumerosColumna(min, max) {
 
 // 3. Renderizar TODOS los cartones
 function renderizarCartones() {
-    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    } catch(e) { cartones = []; }
+
     const contenedorPrincipal = document.getElementById('cards-container');
     contenedorPrincipal.innerHTML = '';
 
@@ -399,7 +432,11 @@ socket.on('connect', () => {
     if (disconnectModal) disconnectModal.style.display = 'none';
 
     // Re-registrar cartones al conectar o reconectar (ej. reinicio de servidor)
-    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
+    } catch(e) { cartones = []; }
+
     if (cartones && cartones.length > 0) {
         cartones.forEach(c => registrarIdEnServidor(c)); // CORRECCIÓN: Enviar objeto completo (con matriz) para validar reconexión
     }
@@ -630,7 +667,32 @@ socket.on('anuncio-ganador', (data) => {
         window.speechSynthesis.speak(utterance);
     }
 
-    mostrarModal("🏆 ¡TENEMOS GANADOR!", `El jugador ${data.nombre} ha cantado BINGO con el cartón ${data.cartonId}`, 'success');
+    // MODIFICADO: Mostrar modal bloqueante SIN botón de cerrar
+    const modal = document.getElementById('custom-modal');
+    const content = modal.querySelector('.modal-content');
+
+    // Guardar contenido original para restaurarlo cuando se reinicie la partida
+    if (!window.originalModalContent) window.originalModalContent = content.innerHTML;
+
+    modal.dataset.blocking = 'true'; // Bloquear cierre manual
+
+    content.innerHTML = `
+        <div style="font-size:5rem; margin-bottom:15px; animation: bounceIn 1s;">🏆</div>
+        <h2 style="color:var(--success); margin-bottom:15px; text-transform:uppercase;">¡Tenemos Ganador!</h2>
+        <p style="color:white; margin-bottom:10px; font-size:1.2em;">
+            El jugador <strong style="color:var(--gold-solid); font-size:1.3em;">${data.nombre}</strong>
+        </p>
+        <p style="color:white; margin-bottom:20px;">
+            Ha cantado BINGO con el cartón <strong style="color:var(--gold-solid);">${data.cartonId}</strong>
+        </p>
+        <div style="margin-top:20px; padding:15px; background:rgba(0,0,0,0.3); border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
+            <p style="color:var(--text-muted); font-size:0.9em; margin:0;">
+                ⏳ Esperando a que el administrador reinicie la partida...
+            </p>
+        </div>
+    `;
+
+    modal.style.display = 'flex';
 });
 
 // Función para cantar Bingo de un cartón específico
@@ -771,7 +833,11 @@ function actualizarIndicadorPatron(patron) {
 
 // Función para verificar si algún cartón tiene 4 o más aciertos en línea
 function verificarEstadoBotonesBingo() {
-    const cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    } catch(e) { cartones = []; }
+
     const marcados = new Set();
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('marcado-')) marcados.add(key.replace('marcado-', ''));
@@ -946,13 +1012,38 @@ window.cerrarModal = function (force = false) {
 
 // 8. Efecto de Confeti y Fuegos Artificiales
 function lanzarConfeti() {
-    const duration = 5000;
+    const duration = 8000;
     const animationEnd = Date.now() + duration;
     const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 2000 };
+    const colors = ['#FFD700', '#C0C0C0', '#ffffff', '#ef4444', '#336B87']; // Paleta Premium
+
+    // Sonido base de fuegos artificiales
+    const audioFireworks = document.getElementById('audio-fireworks');
+    if (audioFireworks) {
+        audioFireworks.volume = 0.6; // Volumen principal
+        audioFireworks.currentTime = 0;
+        audioFireworks.play().catch(() => {});
+    }
 
     function randomInRange(min, max) {
         return Math.random() * (max - min) + min;
     }
+
+    // 1. Explosión inicial central (Estilo Realista)
+    const count = 200;
+    const defaultsInit = { origin: { y: 0.7 }, zIndex: 2001, colors: colors };
+
+    function fire(particleRatio, opts) {
+        confetti(Object.assign({}, defaultsInit, opts, {
+            particleCount: Math.floor(count * particleRatio)
+        }));
+    }
+
+    fire(0.25, { spread: 26, startVelocity: 55 });
+    fire(0.2, { spread: 60 });
+    fire(0.35, { spread: 100, decay: 0.91, scalar: 0.8 });
+    fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 });
+    fire(0.1, { spread: 120, startVelocity: 45 });
 
     // Intervalo para explosiones tipo fuegos artificiales
     const interval = setInterval(function () {
@@ -964,9 +1055,16 @@ function lanzarConfeti() {
 
         const particleCount = 50 * (timeLeft / duration);
 
+        // Sincronización: Reproducir estallidos secundarios aleatorios
+        if (audioFireworks && Math.random() > 0.6) {
+            const clone = audioFireworks.cloneNode(); // Clonar para permitir superposición de sonidos
+            clone.volume = 0.3; // Volumen más bajo para el fondo
+            clone.play().catch(() => {});
+        }
+
         // Explosiones aleatorias (izquierda y derecha)
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
+        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }, colors: colors, shapes: ['circle', 'square'] }));
+        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }, colors: colors, shapes: ['circle', 'square'] }));
     }, 250);
 
     // Lluvia lateral continua
@@ -974,8 +1072,9 @@ function lanzarConfeti() {
         const timeLeft = animationEnd - Date.now();
         if (timeLeft <= 0) return;
 
-        confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
-        confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#336B87', '#ffffff'], zIndex: 2000 });
+        // Estrellas doradas desde los lados
+        confetti({ particleCount: 2, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#FFD700', '#ffffff'], shapes: ['star'], zIndex: 2000 });
+        confetti({ particleCount: 2, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#FFD700', '#ffffff'], shapes: ['star'], zIndex: 2000 });
 
         requestAnimationFrame(frame);
     }());
@@ -1290,7 +1389,11 @@ window.confirmarCambioCarton = function (idOld, idNew) {
     const matrix = convertirA_Matriz(dataFija);
 
     // 3. Actualizar LocalStorage
-    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    let cartones = [];
+    try {
+        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+    } catch(e) { cartones = []; }
+
     const index = cartones.findIndex(c => c.id === idOld);
     if (index !== -1) {
         cartones[index] = { id: newId, data: dataFija };
@@ -1502,7 +1605,11 @@ window.confirmarSeleccionCartones = function (cantidad) {
         const matrix = convertirA_Matriz(dataFija);
 
         // Guardar localmente (Optimista)
-        let cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+        let cartonesActuales = [];
+        try {
+            cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+        } catch(e) { cartonesActuales = []; }
+
         // Usamos el ID numérico como string para consistencia
         cartonesActuales.push({ id: String(id), data: dataFija });
         localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
@@ -1520,7 +1627,11 @@ window.confirmarSeleccionCartones = function (cantidad) {
                     mostrarModal("⛔ CARTÓN OCUPADO", `El cartón #${id} fue seleccionado por otro jugador hace un instante.`, "error");
 
                     // 2. Revertir cambio local (Eliminar el cartón inválido)
-                    let cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                    let cartones = [];
+                    try {
+                        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                    } catch(e) { cartones = []; }
+
                     const filtrados = cartones.filter(c => c.id !== String(id));
                     localStorage.setItem('bingo-ajp-cartones', JSON.stringify(filtrados));
 
@@ -1807,7 +1918,7 @@ window.mostrarQR = function (url) {
 // --- PWA INSTALLATION ---
 let deferredPrompt;
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {
         // Usar ruta relativa para compatibilidad con GitHub Pages (subdirectorios)
         navigator.serviceWorker.register('./sw.js').catch(err => console.log('Error SW:', err));

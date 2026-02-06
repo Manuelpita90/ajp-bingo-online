@@ -1553,7 +1553,7 @@ window.onload = initTablero;
 // --- PWA INSTALLATION (ADMIN) ---
 let deferredPrompt;
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {
         // Usar ruta relativa para compatibilidad con GitHub Pages
         navigator.serviceWorker.register('./sw.js').catch(err => console.log('Error SW:', err));

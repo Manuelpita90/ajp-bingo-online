@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 // CONFIGURACIÓN DE SEGURIDAD
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin'; // Cambiar esto en producción
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin'; // Contraseña por defecto
 
 // Servir archivos estáticos desde la carpeta 'public'
 app.use(express.static(path.join(__dirname, 'public')));
@@ -33,9 +33,13 @@ async function loadWinners() {
     try {
         // Usamos flag 'a+' para abrir o crear si no existe, pero para leer es mejor catch
         const data = await fsPromises.readFile(WINNERS_FILE, 'utf8');
-        return data ? JSON.parse(data) : [];
+        if (!data || data.trim() === '') return [];
+        return JSON.parse(data);
     } catch (e) {
-        if (e.code !== 'ENOENT') console.error("Error leyendo/parseando ganadores:", e);
+        if (e.code !== 'ENOENT') {
+            console.error("Error leyendo/parseando ganadores (archivo corrupto o error IO):", e.message);
+            return []; // Retornar array vacío en caso de corrupción para no romper el flujo
+        }
     }
     return [];
 }
@@ -60,9 +64,9 @@ async function saveGameHistory(gameData) {
     let history = [];
     try {
         const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
-        history = JSON.parse(data);
+        if (data && data.trim() !== '') history = JSON.parse(data);
     } catch (e) {
-        if (e.code !== 'ENOENT') console.error("Error leyendo historial partidas:", e);
+        if (e.code !== 'ENOENT') console.error("Error leyendo historial partidas:", e.message);
     }
 
     history.unshift(gameData);
@@ -664,6 +668,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log('------------------------------------');
     console.log(`BINGO AJP-LOGIC ONLINE`);
+    console.log(`Directorio: ${__dirname}`);
     console.log(`URL Local: http://localhost:${PORT}`);
     console.log('------------------------------------');
 });

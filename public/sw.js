@@ -13,6 +13,7 @@ const ASSETS = [
   './sounds/request.mp3',
   './sounds/suspense.mp3',
   './sounds/alarm.mp3',
+  './sounds/fireworks.mp3',
   './manifest.json',
   './manifest-admin.json'
 ];
