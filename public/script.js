@@ -45,9 +45,14 @@ function cargarJuego() {
         // NUEVO: Recuperar estado de selección pendiente (Persistencia)
         const pendingSelection = localStorage.getItem('bingo-pending-selection');
         if (pendingSelection) {
-            mostrarModalSeleccionCartones(parseInt(pendingSelection));
-            initChat();
-            return;
+            const parsed = parseInt(pendingSelection);
+            if (!isNaN(parsed) && parsed > 0 && parsed <= 4) {
+                mostrarModalSeleccionCartones(parsed);
+                initChat();
+                return;
+            } else {
+                localStorage.removeItem('bingo-pending-selection');
+            }
         }
 
         // MODIFICADO: Verificar estado del juego antes de mostrar solicitud
@@ -529,14 +534,9 @@ socket.on('historial', (bolas) => {
 });
 
 socket.on('limpiar-tablero', (newGameId) => {
-    // Guardar nombre para no obligar a escribirlo de nuevo
-    const savedName = localStorage.getItem('player-name');
-    const pwaDismissed = localStorage.getItem('pwa-banner-dismissed'); // Preservar estado PWA
-
-    // Cuando el admin reinicia, borramos todo rastro del juego anterior
-    localStorage.clear();
-    if (savedName) localStorage.setItem('player-name', savedName);
-    if (pwaDismissed) localStorage.setItem('pwa-banner-dismissed', pwaDismissed);
+    // Cuando el admin reinicia, borramos únicamente los datos correspondientes al juego terminado (cartones)
+    // Se preservan datos de configuraciones, preferencias del usuario o UI, y tokens.
+    localStorage.removeItem('cartones-bingo');
     if (newGameId) localStorage.setItem('bingo-game-id', newGameId);
 
     cerrarModal(true); // Forzar cierre de cualquier modal bloqueante (Sala de Espera) al reiniciar
@@ -566,12 +566,8 @@ socket.on('sync-game-id', (serverGameId) => {
 
     // Si hay un ID local y es distinto al del servidor -> Reinicio ocurrido mientras estaba desconectado
     if (localGameId && localGameId !== serverGameId) {
-        console.log("Sincronización: Partida nueva detectada. Limpiando...");
-        const savedName = localStorage.getItem('player-name');
-        const pwaDismissed = localStorage.getItem('pwa-banner-dismissed');
-        localStorage.clear();
-        if (savedName) localStorage.setItem('player-name', savedName);
-        if (pwaDismissed) localStorage.setItem('pwa-banner-dismissed', pwaDismissed);
+        console.log("Sincronización: Partida nueva detectada. Limpiando cartones antiguos...");
+        localStorage.removeItem('cartones-bingo'); // Eliminación selectiva en vez de un borrado total destructivo (clear)
         localStorage.setItem('bingo-game-id', serverGameId);
         window.location.reload(); // Recargar para asegurar estado limpio y mostrar solicitud
     } else if (!localGameId) {
@@ -718,7 +714,8 @@ function reclamarBingoIndividual(cartonObj) {
         let count = 0;
         coords.forEach(([r, c]) => {
             const val = matrix[r][c];
-            if (val === 'FREE' || marcadosSet.has(String(val))) count++;
+            // Anti-cheat: Verificar que el número también fue cantado y no solo marcado localmente
+            if (val === 'FREE' || (marcadosSet.has(String(val)) && numerosCantados.has(Number(val)))) count++;
         });
         return count;
     };

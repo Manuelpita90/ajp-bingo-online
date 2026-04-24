@@ -1,5 +1,110 @@
 [
   {
+    "timestamp": "2026-04-23T23:56:43.697Z",
+    "ballsCalled": 43,
+    "winnerCount": 1,
+    "winners": [
+      {
+        "id": "xn4arKzmDWlBKsABAAAJ",
+        "nombre": "MANUEL",
+        "winnerRank": 1,
+        "cartonId": "35",
+        "numeros": [
+          "21",
+          "46",
+          "42",
+          "57",
+          "28",
+          "32",
+          "34",
+          "33",
+          "66",
+          "27",
+          "2",
+          "1",
+          "70",
+          "10",
+          "68",
+          "73",
+          "53",
+          "69",
+          "39",
+          "64",
+          "49",
+          "75",
+          "71",
+          "20",
+          "58",
+          "36",
+          "38",
+          "30",
+          "9"
+        ],
+        "winningNumbers": [
+          32,
+          33,
+          38,
+          42
+        ],
+        "reason": "Línea Vertical",
+        "valid": true,
+        "timestamp": "2026-04-23T23:56:22.571Z"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-04-23T23:40:21.378Z",
+    "ballsCalled": 2,
+    "winnerCount": 0,
+    "winners": []
+  },
+  {
+    "timestamp": "2026-02-06T23:46:59.380Z",
+    "ballsCalled": 41,
+    "winnerCount": 1,
+    "winners": [
+      {
+        "id": "uOJWcgHCgVaj-X_YAAAF",
+        "nombre": "MANUEL",
+        "winnerRank": 1,
+        "cartonId": "25",
+        "numeros": [
+          "69",
+          "39",
+          "24",
+          "46",
+          "44",
+          "52",
+          "75",
+          "22",
+          "40",
+          "14",
+          "35",
+          "54",
+          "47",
+          "74",
+          "58",
+          "3",
+          "17",
+          "68",
+          "61",
+          "8",
+          "50"
+        ],
+        "winningNumbers": [
+          61,
+          68,
+          69,
+          74,
+          75
+        ],
+        "reason": "Línea Vertical",
+        "valid": true,
+        "timestamp": "2026-02-06T23:46:40.948Z"
+      }
+    ]
+  },
+  {
     "timestamp": "2026-02-06T01:25:18.920Z",
     "ballsCalled": 55,
     "winnerCount": 1,
@@ -332,24 +437,6 @@
   {
     "timestamp": "2026-01-30T00:57:08.200Z",
     "ballsCalled": 8,
-    "winnerCount": 0,
-    "winners": []
-  },
-  {
-    "timestamp": "2026-01-30T00:55:23.986Z",
-    "ballsCalled": 1,
-    "winnerCount": 0,
-    "winners": []
-  },
-  {
-    "timestamp": "2026-01-30T00:24:24.834Z",
-    "ballsCalled": 1,
-    "winnerCount": 0,
-    "winners": []
-  },
-  {
-    "timestamp": "2026-01-30T00:00:25.988Z",
-    "ballsCalled": 1,
     "winnerCount": 0,
     "winners": []
   }

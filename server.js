@@ -29,30 +29,39 @@ let currentWinningPattern = 'linea'; // Patrón de victoria por defecto
 const WINNERS_FILE = path.join(__dirname, 'winners.json');
 const GAMES_FILE = path.join(__dirname, 'games_history.json');
 
+let globalWinners = null;
+let isSavingWinner = false;
+
 async function loadWinners() {
+    if (globalWinners !== null) return globalWinners;
     try {
-        // Usamos flag 'a+' para abrir o crear si no existe, pero para leer es mejor catch
         const data = await fsPromises.readFile(WINNERS_FILE, 'utf8');
-        if (!data || data.trim() === '') return [];
-        return JSON.parse(data);
+        if (!data || data.trim() === '') globalWinners = [];
+        else globalWinners = JSON.parse(data);
     } catch (e) {
         if (e.code !== 'ENOENT') {
             console.error("Error leyendo/parseando ganadores (archivo corrupto o error IO):", e.message);
-            return []; // Retornar array vacío en caso de corrupción para no romper el flujo
         }
+        globalWinners = [];
     }
-    return [];
+    return globalWinners;
 }
 
 async function saveWinner(winner) {
-    const list = await loadWinners();
-    list.unshift(winner); // Añadir al principio
+    if (globalWinners === null) await loadWinners();
+    globalWinners.unshift(winner); // Añadir al principio
+    
+    // Bloqueo simple para evitar condiciones de carrera en disco
+    while(isSavingWinner) await new Promise(r => setTimeout(r, 50));
+    isSavingWinner = true;
     try {
-        await fsPromises.writeFile(WINNERS_FILE, JSON.stringify(list, null, 2));
+        await fsPromises.writeFile(WINNERS_FILE, JSON.stringify(globalWinners, null, 2));
     } catch (e) { console.error("Error guardando ganador:", e); }
+    isSavingWinner = false;
 }
 
 async function clearWinners() {
+    globalWinners = [];
     try {
         await fsPromises.unlink(WINNERS_FILE);
     } catch (e) {
@@ -60,21 +69,39 @@ async function clearWinners() {
     }
 }
 
+let globalGameHistory = null;
+let isSavingHistory = false;
+
 async function saveGameHistory(gameData) {
-    let history = [];
-    try {
-        const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
-        if (data && data.trim() !== '') history = JSON.parse(data);
-    } catch (e) {
-        if (e.code !== 'ENOENT') console.error("Error leyendo historial partidas:", e.message);
+    if (globalGameHistory === null) {
+        try {
+            const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
+            if (data && data.trim() !== '') globalGameHistory = JSON.parse(data);
+            else globalGameHistory = [];
+        } catch (e) {
+            if (e.code !== 'ENOENT') console.error("Error leyendo historial partidas:", e.message);
+            globalGameHistory = [];
+        }
     }
 
-    history.unshift(gameData);
-    if (history.length > 20) history = history.slice(0, 20); // Guardar últimas 20
+    const now = new Date();
+    // Fecha de inicio exacto de ayer (00:00:00)
+    const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    
+    // Podar el historial para mantener SOLO las de hoy y de ayer
+    globalGameHistory = globalGameHistory.filter(game => new Date(game.timestamp) >= startOfYesterday);
 
+    globalGameHistory.unshift(gameData);
+    
+    // Opcional: Conservar hasta 100 partidas entre los dos días de registro
+    if (globalGameHistory.length > 100) globalGameHistory = globalGameHistory.slice(0, 100);
+
+    while(isSavingHistory) await new Promise(r => setTimeout(r, 50));
+    isSavingHistory = true;
     try {
-        await fsPromises.writeFile(GAMES_FILE, JSON.stringify(history, null, 2));
+        await fsPromises.writeFile(GAMES_FILE, JSON.stringify(globalGameHistory, null, 2));
     } catch (e) { console.error("Error guardando historial partidas:", e); }
+    isSavingHistory = false;
 }
 
 // Helper para contar y emitir jugadores con cartones cargados
@@ -227,7 +254,7 @@ io.on('connection', (socket) => {
     // Enviamos al jugador que entra las bolas que ya salieron
     socket.emit('historial', bolasCantadas);
     socket.emit('sync-game-id', currentGameId);
-    socket.emit('sync-game-start-time', gameStartTime);
+    socket.emit('sync-game-start-time', { startTime: gameStartTime, serverTime: Date.now() });
     socket.emit('sync-patron', currentWinningPattern);
 
     // 3. Lógica de Bolas (Admin -> Servidor -> Todos)
@@ -235,7 +262,7 @@ io.on('connection', (socket) => {
         if (!bolasCantadas.includes(numero)) {
             if (bolasCantadas.length === 0) {
                 gameStartTime = Date.now();
-                io.emit('sync-game-start-time', gameStartTime);
+                io.emit('sync-game-start-time', { startTime: gameStartTime, serverTime: Date.now() });
             }
             bolasCantadas.push(numero);
             io.emit('anuncio-bola', numero);
@@ -323,12 +350,32 @@ io.on('connection', (socket) => {
 
     // 9. Admin solicita historial de partidas pasadas
     socket.on('admin-solicitar-historial-partidas', async () => {
-        let history = [];
-        try {
-            const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
-            history = JSON.parse(data);
-        } catch (e) { }
-        socket.emit('admin-historial-partidas', history);
+        if (globalGameHistory === null) {
+            try {
+                const data = await fsPromises.readFile(GAMES_FILE, 'utf8');
+                globalGameHistory = (data && data.trim() !== '') ? JSON.parse(data) : [];
+            } catch (e) {
+                globalGameHistory = [];
+            }
+        }
+
+        // LIMPIEZA ACTIVA AL SOLICITAR
+        const now = new Date();
+        const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        const originalLen = globalGameHistory.length;
+        globalGameHistory = globalGameHistory.filter(game => new Date(game.timestamp) >= startOfYesterday);
+
+        if (globalGameHistory.length !== originalLen) {
+            // Guardar al disco si purgamos registros obsoletos
+            while(isSavingHistory) await new Promise(r => setTimeout(r, 50));
+            isSavingHistory = true;
+            try { 
+                await fsPromises.writeFile(GAMES_FILE, JSON.stringify(globalGameHistory, null, 2)); 
+            } catch(e) { }
+            isSavingHistory = false;
+        }
+
+        socket.emit('admin-historial-partidas', globalGameHistory);
     });
 
     // --- NUEVO: SISTEMA DE SOLICITUDES Y CHAT ---
@@ -646,13 +693,17 @@ io.on('connection', (socket) => {
         io.emit('sync-game-start-time', null);
     });
 
-    // 6. Desconexión
     socket.on('disconnect', () => {
         if (socket.data.cartonIds) {
             socket.data.cartonIds.forEach(id => {
-                activeCartones.delete(id);
-                // Emitir evento de liberación para actualizar grids en tiempo real
-                io.emit('estado-carton-cambiado', { id: id, estado: 'libre' });
+                const current = activeCartones.get(id);
+                // Validar que SOLO se elimine si este socket es el dueño actual.
+                // Esto previene que si una persona abre dos pestañas y cierra una, desconecte a la otra
+                if (current && current.socketId === socket.id) {
+                    activeCartones.delete(id);
+                    // Emitir evento de liberación para actualizar grids en tiempo real
+                    io.emit('estado-carton-cambiado', { id: id, estado: 'libre' });
+                }
             });
         }
 

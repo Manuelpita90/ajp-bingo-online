@@ -1022,6 +1022,14 @@ button:active {
         /* Subir para no tapar banner PWA si existe */
         right: 10px;
     }
+
+    .chat-window {
+        width: calc(100% - 20px);
+        right: 10px;
+        bottom: 125px; /* Por encima del botón flotante */
+        height: 50vh;
+        z-index: 10500;
+    }
 }
 
 /* --- MODAL PERSONALIZADO --- */
@@ -1686,4 +1694,70 @@ button:active {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* --- ANTIGRAVITY SOLARIZED DARK THEME --- */
+body.solarized-theme {
+    --dark-bg: #002b36;
+    --surface-card: #073642;
+    --gold-solid: #b58900;
+    --gold-gradient: linear-gradient(135deg, #b58900, #cb4b16, #d33682);
+    --text-main: #93a1a1;
+    --text-muted: #586e75;
+    --glass-border: rgba(38, 139, 210, 0.3);
+    --success: #859900;
+    --danger: #dc322f;
+    background-color: var(--dark-bg);
+}
+
+body.solarized-theme .admin-container,
+body.solarized-theme .game-container {
+    background: rgba(7, 54, 66, 0.85) !important;
+    border: 1px solid rgba(38, 139, 210, 0.2) !important;
+}
+
+body.solarized-theme .display-section,
+body.solarized-theme .master-board,
+body.solarized-theme .admin-actions-panel,
+body.solarized-theme .single-card-wrapper {
+    background: rgba(0, 43, 54, 0.6) !important;
+    border: 1px solid rgba(38, 139, 210, 0.15) !important;
+}
+
+body.solarized-theme .ball-slot,
+body.solarized-theme .cell {
+    background: rgba(0, 43, 54, 0.8);
+    border: 1px solid rgba(88, 110, 117, 0.3);
+}
+
+body.solarized-theme .ball-placeholder {
+    background: #073642;
+}
+
+body.solarized-theme h1,
+body.solarized-theme #display-ball {
+    -webkit-text-fill-color: var(--gold-solid);
+    filter: drop-shadow(0 0 10px rgba(181, 137, 0, 0.3));
+    animation: none; /* Desactivar glow exagerado para un look de consola tech */
+}
+
+/* Modales, chat y notificaciones PWA */
+body.solarized-theme .chat-window,
+body.solarized-theme .pwa-banner {
+    background: rgba(7, 54, 66, 0.95) !important;
+    border-color: var(--gold-solid) !important;
+}
+
+body.solarized-theme .chat-header {
+    background: rgba(0, 43, 54, 0.8) !important;
+}
+
+body.solarized-theme .chat-msg.mine {
+    background: rgba(38, 139, 210, 0.2); 
+    border-color: rgba(38, 139, 210, 0.3);
+}
+
+body.solarized-theme .winners-section {
+    background: rgba(0, 43, 54, 0.6);
+    border-color: rgba(38, 139, 210, 0.15);
 }

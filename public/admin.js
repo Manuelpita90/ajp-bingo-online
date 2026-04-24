@@ -231,7 +231,7 @@ function initTablero() {
         const btn = document.createElement('button');
         btn.id = 'btn-winners';
         btn.className = 'btn-outline';
-        btn.textContent = '🏆 HISTORIAL DE GANADORES';
+        btn.textContent = '🏆 GANADORES LOCALES (ESTA RONDA)';
         btn.onclick = function () {
             console.log("Botón Historial Ganadores presionado");
             if (window.verHistorialGanadores) {
@@ -248,7 +248,7 @@ function initTablero() {
         const btn = document.createElement('button');
         btn.id = 'btn-history';
         btn.className = 'btn-outline';
-        btn.textContent = '📜 HISTORIAL DE PARTIDAS';
+        btn.textContent = '📜 HISTORIAL GLOBAL (PARTIDAS ANTERIORES)';
         btn.onclick = window.verHistorialPartidas;
         actionsPanel.appendChild(btn);
     }
@@ -743,8 +743,14 @@ socket.on('sync-game-id', (id) => {
     // El ID ya no controla el tiempo, solo la sesión
 });
 
-socket.on('sync-game-start-time', (timestamp) => {
-    gameStartTime = timestamp;
+socket.on('sync-game-start-time', (data) => {
+    if (data && typeof data === 'object' && data.startTime) {
+        const elapsed = data.serverTime - data.startTime;
+        gameStartTime = Date.now() - elapsed;
+    } else {
+        gameStartTime = data;
+    }
+
     if (gameStartTime) {
         startTimer();
     } else {
@@ -1135,49 +1141,19 @@ window.cerrarModalAdmin = function () {
     document.getElementById('admin-modal').style.display = 'none';
 };
 
-// 12. Ver Historial de Ganadores (Estilo Modal)
+let currentHistoryAction = 'locales';
+
+// 12. Ver Historial de Ganadores (Día Actual)
 window.verHistorialGanadores = function () {
-    console.log("Abriendo historial de ganadores...");
-    safeguardRequestsList();
-    ensureAdminModal();
-
-    let html = '';
-    const lista = (currentWinnersList && Array.isArray(currentWinnersList)) ? currentWinnersList : [];
-
-    if (lista.length === 0) {
-        html = '<p style="color: var(--text-muted); text-align:center;">Aún no hay ganadores en esta partida.</p>';
-    } else {
-        html = lista.map(w => {
-            const date = w.timestamp ? new Date(w.timestamp).toLocaleTimeString() : '';
-            const rank = w.winnerRank ? `#${w.winnerRank}` : '';
-            return `
-                <div style="background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid var(--success);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
-                        <strong style="color:var(--text-main); font-size:1.1em">
-                            <span style="color:var(--gold-solid); margin-right:5px;">${rank}</span> ${w.nombre || 'Anónimo'}
-                        </strong>
-                        <span style="font-size:0.85em; color:var(--text-muted); font-family:monospace;">${date}</span>
-                    </div>
-                    <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
-                        <span>🎫 Cartón: <span style="color:var(--gold-solid);">${w.cartonId}</span></span>
-                        <span style="background:rgba(16, 185, 129, 0.1); color:var(--success); padding:2px 8px; border-radius:4px; font-size:0.85em; border:1px solid rgba(16, 185, 129, 0.2);">${w.reason || 'Bingo'}</span>
-                    </div>
-                    <div style="font-size:0.85em; color:var(--success);">
-                        Números: ${w.winningNumbers ? w.winningNumbers.join(', ') : 'N/A'}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    const modal = document.getElementById('admin-modal');
-    document.getElementById('admin-modal-title').textContent = `🏆 GANADORES (${lista.length})`;
-    document.getElementById('admin-modal-body').innerHTML = html;
-    modal.style.display = 'flex';
+    console.log("Abriendo ganadores de hoy...");
+    currentHistoryAction = 'locales';
+    socket.emit('admin-solicitar-historial-partidas');
 };
 
-// 11. Ver Historial de Partidas
+// 11. Ver Historial de Partidas (Días Anteriores)
 window.verHistorialPartidas = function () {
+    console.log("Abriendo ganadores de dias anteriores...");
+    currentHistoryAction = 'global';
     socket.emit('admin-solicitar-historial-partidas');
 };
 
@@ -1185,33 +1161,87 @@ socket.on('admin-historial-partidas', (history) => {
     safeguardRequestsList();
     ensureAdminModal();
     let html = '';
-    if (!history || history.length === 0) {
-        html = '<p style="color: var(--text-muted); text-align:center;">No hay partidas registradas en el historial.</p>';
+    const modal = document.getElementById('admin-modal');
+
+    const now = new Date();
+    const isSameDay = (d1, d2) => d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
+
+    if (currentHistoryAction === 'locales') {
+        // --- GANADORES LOCALES (DÍA ACTUAL) ---
+        let winnersHoy = [];
+        if (history) {
+            history.forEach(game => {
+                if (isSameDay(new Date(game.timestamp), now)) {
+                    winnersHoy = winnersHoy.concat(game.winners || []);
+                }
+            });
+        }
+        
+        // Sumar ganadores de la ronda activa que aún no se guardan en el history
+        const listaActiva = Array.isArray(currentWinnersList) ? currentWinnersList : [];
+        const listaCompleta = listaActiva.concat(winnersHoy);
+
+        if (listaCompleta.length === 0) {
+            html = '<p style="color: var(--text-muted); text-align:center;">No hay ganadores registrados en el día de hoy.</p>';
+        } else {
+            html = listaCompleta.map(w => {
+                const date = w.timestamp ? new Date(w.timestamp).toLocaleTimeString() : '';
+                const rank = w.winnerRank ? `#${w.winnerRank}` : '';
+                return `
+                    <div style="background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid var(--success);">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
+                            <strong style="color:var(--text-main); font-size:1.1em">
+                                <span style="color:var(--gold-solid); margin-right:5px;">${rank}</span> ${w.nombre || 'Anónimo'}
+                            </strong>
+                            <span style="font-size:0.85em; color:var(--text-muted); font-family:monospace;">${date}</span>
+                        </div>
+                        <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
+                            <span>🎫 Cartón: <span style="color:var(--gold-solid);">${w.cartonId}</span></span>
+                            <span style="background:rgba(16, 185, 129, 0.1); color:var(--success); padding:2px 8px; border-radius:4px; font-size:0.85em; border:1px solid rgba(16, 185, 129, 0.2);">${w.reason || 'Bingo'}</span>
+                        </div>
+                        <div style="font-size:0.85em; color:var(--success);">
+                            Números: ${w.winningNumbers ? w.winningNumbers.join(', ') : 'N/A'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        document.getElementById('admin-modal-title').textContent = `🏆 GANADORES DE HOY (${listaCompleta.length})`;
+        document.getElementById('admin-modal-body').innerHTML = html;
+
     } else {
-        html = history.map(game => {
-            const date = new Date(game.timestamp).toLocaleString();
-            return `
-                <div style="background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid var(--gold-solid);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
-                        <strong style="color:var(--gold-solid); font-size:0.95em">${date}</strong>
-                        <span style="font-size:0.85em; background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px;">🎱 ${game.ballsCalled} bolas</span>
+        // --- HISTORIAL GLOBAL (DÍAS ANTERIORES) ---
+        const pastGames = (history || []).filter(game => !isSameDay(new Date(game.timestamp), now));
+
+        if (!pastGames || pastGames.length === 0) {
+            html = '<p style="color: var(--text-muted); text-align:center;">No hay partidas registradas de días anteriores.</p>';
+        } else {
+            html = pastGames.map(game => {
+                const date = new Date(game.timestamp).toLocaleString();
+                return `
+                    <div style="background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 3px solid var(--gold-solid);">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
+                            <strong style="color:var(--gold-solid); font-size:0.95em">${date}</strong>
+                            <span style="font-size:0.85em; background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px;">🎱 ${game.ballsCalled} bolas</span>
+                        </div>
+                        <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px;">
+                            🏆 ${game.winnerCount} Ganadores
+                        </div>
+                        ${game.winners.length > 0 ?
+                        `<div style="margin-top:5px; font-size:0.85em; padding-top:5px; border-top:1px solid rgba(255,255,255,0.1); color:var(--text-main); opacity:0.8;">
+                                ${game.winners.map(w => `<div>• ID ${w.id.substr(0, 4)} (🎫 ${w.cartonId}) <span style="float:right; opacity:0.7;">${w.nombre || ''}</span></div>`).join('')}
+                             </div>`
+                        : ''}
                     </div>
-                    <div style="font-size:0.9em; color:var(--text-muted); margin-bottom:5px;">
-                        🏆 ${game.winnerCount} Ganadores
-                    </div>
-                    ${game.winners.length > 0 ?
-                    `<div style="margin-top:5px; font-size:0.85em; padding-top:5px; border-top:1px solid rgba(255,255,255,0.1); color:var(--text-main); opacity:0.8;">
-                            ${game.winners.map(w => `<div>• ID ${w.id.substr(0, 4)} (🎫 ${w.cartonId})</div>`).join('')}
-                         </div>`
-                    : ''}
-                </div>
-            `;
-        }).join('');
+                `;
+            }).join('');
+        }
+
+        document.getElementById('admin-modal-title').textContent = `📜 PARTIDAS DE DÍAS ANTERIORES (${pastGames.length})`;
+        document.getElementById('admin-modal-body').innerHTML = html;
     }
 
-    const modal = document.getElementById('admin-modal');
-    document.getElementById('admin-modal-title').textContent = `📜 ÚLTIMAS PARTIDAS`;
-    document.getElementById('admin-modal-body').innerHTML = html;
     modal.style.display = 'flex';
 });
 
@@ -1752,7 +1782,8 @@ function updateTimerDisplay() {
     }
 
     const diff = Math.floor((Date.now() - gameStartTime) / 1000);
-    if (diff < 0) return; // Evitar negativos si el reloj local está desajustado
+    // Ya no debería dar negativo si se calculó el elapsed local, pero por si acas:
+    if (diff < 0) { el.textContent = "00:00"; return; }
 
     const h = Math.floor(diff / 3600);
     const m = Math.floor((diff % 3600) / 60);
