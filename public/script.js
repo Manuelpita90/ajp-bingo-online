@@ -538,6 +538,7 @@ socket.on('limpiar-tablero', (newGameId) => {
     // Se preservan datos de configuraciones, preferencias del usuario o UI, y tokens.
     localStorage.removeItem('bingo-ajp-cartones');
     localStorage.removeItem('bingo-pending-selection');
+    limpiarMarcasLocales(); // NUEVO: Quitar marcas de los números (volver a blanco)
     if (newGameId) localStorage.setItem('bingo-game-id', newGameId);
 
     cerrarModal(true); // Forzar cierre de cualquier modal bloqueante (Sala de Espera) al reiniciar
@@ -573,6 +574,7 @@ socket.on('sync-game-id', (serverGameId) => {
         console.log("Sincronización: Partida nueva detectada. Limpiando cartones antiguos...");
         localStorage.removeItem('bingo-ajp-cartones');
         localStorage.removeItem('bingo-pending-selection');
+        limpiarMarcasLocales(); // NUEVO: Limpiar marcas al sincronizar reinicio
         localStorage.setItem('bingo-game-id', serverGameId);
         window.location.reload(); // Recargar para asegurar estado limpio y mostrar solicitud
     } else if (!localGameId) {
@@ -1298,6 +1300,15 @@ socket.on('solicitud-aprobada', (data) => {
         mostrarModalSeleccionCartones(data.cantidad);
     }, 2100);
 });
+
+// Limpiar todas las marcas manuales (color azul) del localStorage
+function limpiarMarcasLocales() {
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('marcado-')) {
+            localStorage.removeItem(key);
+        }
+    });
+}
 
 socket.on('solicitud-rechazada', (data) => {
     const status = document.getElementById('solicitud-status');
