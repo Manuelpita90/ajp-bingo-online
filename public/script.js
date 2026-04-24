@@ -536,7 +536,8 @@ socket.on('historial', (bolas) => {
 socket.on('limpiar-tablero', (newGameId) => {
     // Cuando el admin reinicia, borramos únicamente los datos correspondientes al juego terminado (cartones)
     // Se preservan datos de configuraciones, preferencias del usuario o UI, y tokens.
-    localStorage.removeItem('cartones-bingo');
+    localStorage.removeItem('bingo-ajp-cartones');
+    localStorage.removeItem('bingo-pending-selection');
     if (newGameId) localStorage.setItem('bingo-game-id', newGameId);
 
     cerrarModal(true); // Forzar cierre de cualquier modal bloqueante (Sala de Espera) al reiniciar
@@ -547,6 +548,7 @@ socket.on('limpiar-tablero', (newGameId) => {
     cartonesConBingoEnviado.clear(); // Limpiar bloqueos de envío
 
     // Resetear UI
+    document.getElementById('cards-container').innerHTML = ''; // Limpiar cartones visualmente
     document.getElementById('waiting-message').style.display = 'block';
     document.getElementById('last-calls').style.display = 'none';
     document.getElementById('last-calls').innerHTML = `
@@ -557,7 +559,9 @@ socket.on('limpiar-tablero', (newGameId) => {
         <div class="ball-placeholder">--</div>
     `;
 
-    // Generar nuevo cartón
+    cartonesSeleccionadosTemp = new Set(); // Resetear selección temporal
+
+    // Volver al flujo inicial (Menú de solicitud/comprar)
     cargarJuego();
 });
 
@@ -567,7 +571,8 @@ socket.on('sync-game-id', (serverGameId) => {
     // Si hay un ID local y es distinto al del servidor -> Reinicio ocurrido mientras estaba desconectado
     if (localGameId && localGameId !== serverGameId) {
         console.log("Sincronización: Partida nueva detectada. Limpiando cartones antiguos...");
-        localStorage.removeItem('cartones-bingo'); // Eliminación selectiva en vez de un borrado total destructivo (clear)
+        localStorage.removeItem('bingo-ajp-cartones');
+        localStorage.removeItem('bingo-pending-selection');
         localStorage.setItem('bingo-game-id', serverGameId);
         window.location.reload(); // Recargar para asegurar estado limpio y mostrar solicitud
     } else if (!localGameId) {
@@ -1150,7 +1155,7 @@ function mostrarModalSolicitud() {
         
         <div style="text-align:left; margin-bottom:15px;">
             <label style="display:block; color:white; margin-bottom:5px;">Tu Nombre:</label>
-            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. JUAN PÉREZ" oninput="this.value = this.value.toUpperCase(); validarFormularioSolicitud()">
+            <input type="text" id="player-name" class="admin-input" style="width:100%" placeholder="Ej. JUAN PÉREZ" oninput="this.value = this.value.toUpperCase(); validarFormularioSolicitud()" value="${localStorage.getItem('player-name') || ''}">
         </div>
 
         <div style="text-align:left; margin-bottom:15px;">
@@ -1200,6 +1205,7 @@ function mostrarModalSolicitud() {
     `;
 
     modal.style.display = 'flex';
+    validarFormularioSolicitud(); // Ejecutar validación inicial por si ya tiene el nombre pre-cargado
 }
 
 window.validarFormularioSolicitud = function () {
