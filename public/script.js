@@ -75,7 +75,7 @@ function cargarJuego() {
 
 function generarIdAleatorio() {
     // Uso de crypto.randomUUID si está disponible para evitar colisiones
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
         return '#' + crypto.randomUUID().split('-')[0].toUpperCase();
     }
     // Fallback mejorado
@@ -115,7 +115,7 @@ function registrarIdEnServidor(cartonObj) {
                 let cartones = [];
                 try {
                     cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-                } catch(e) {
+                } catch (e) {
                     cartones = [];
                 }
                 const nuevosCartones = cartones.filter(c => c.id !== id);
@@ -131,7 +131,7 @@ function registrarIdEnServidor(cartonObj) {
                 let cartones = [];
                 try {
                     cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-                } catch(e) { cartones = []; }
+                } catch (e) { cartones = []; }
 
                 const nuevosCartones = cartones.filter(c => c.id !== id);
                 localStorage.setItem('bingo-ajp-cartones', JSON.stringify(nuevosCartones));
@@ -141,19 +141,21 @@ function registrarIdEnServidor(cartonObj) {
 
             // MEJORA: Si el servidor rechaza el ID al cargar (ej. colisión o sesión fantasma),
             // intentamos regenerarlo para que el usuario no juegue con un cartón inválido.
-            if (confirm(`El ID ${id} ya está en uso o hubo un error de sincronización. ¿Generar nuevo ID para este cartón?`)) {
-                let cartones = [];
-                try {
-                    cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-                } catch(e) { cartones = []; }
-                const index = cartones.findIndex(c => c.id === id);
-                if (index !== -1) {
-                    cartones[index].id = generarIdAleatorio();
-                    localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
-                    registrarIdEnServidor(cartones[index]); // Reintentar
-                    renderizarCartones(); // Actualizar UI
+            window.mostrarConfirmacion("RESTAURAR CARTÓN", `El ID ${id} ya está en uso o hubo un error de sincronización.\n\n¿Generar nuevo ID para este cartón?`).then((confirmado) => {
+                if (confirmado) {
+                    let cartones = [];
+                    try {
+                        cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
+                    } catch (e) { cartones = []; }
+                    const index = cartones.findIndex(c => c.id === id);
+                    if (index !== -1) {
+                        cartones[index].id = generarIdAleatorio();
+                        localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartones));
+                        registrarIdEnServidor(cartones[index]); // Reintentar
+                        renderizarCartones(); // Actualizar UI
+                    }
                 }
-            }
+            });
         }
     });
 }
@@ -188,7 +190,7 @@ function agregarNuevoCarton(render = true, callback = null) {
             let cartonesActuales = [];
             try {
                 cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-            } catch(e) { cartonesActuales = []; }
+            } catch (e) { cartonesActuales = []; }
 
             cartonesActuales.push({ id: nuevoId, data: nuevoData });
             localStorage.setItem('bingo-ajp-cartones', JSON.stringify(cartonesActuales));
@@ -280,7 +282,7 @@ function renderizarCartones() {
     let cartones = [];
     try {
         cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-    } catch(e) { cartones = []; }
+    } catch (e) { cartones = []; }
 
     const contenedorPrincipal = document.getElementById('cards-container');
     contenedorPrincipal.innerHTML = '';
@@ -440,7 +442,7 @@ socket.on('connect', () => {
     let cartones = [];
     try {
         cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones'));
-    } catch(e) { cartones = []; }
+    } catch (e) { cartones = []; }
 
     if (cartones && cartones.length > 0) {
         cartones.forEach(c => registrarIdEnServidor(c)); // CORRECCIÓN: Enviar objeto completo (con matriz) para validar reconexión
@@ -537,33 +539,45 @@ socket.on('limpiar-tablero', (newGameId) => {
     // Cuando el admin reinicia, borramos únicamente los datos correspondientes al juego terminado (cartones)
     // Se preservan datos de configuraciones, preferencias del usuario o UI, y tokens.
     localStorage.removeItem('bingo-ajp-cartones');
+    localStorage.removeItem('bingo-ajp-carton'); // Migración: Limpiar también formato antiguo
+    localStorage.removeItem('bingo-ajp-carton-id');
     localStorage.removeItem('bingo-pending-selection');
+
     limpiarMarcasLocales(); // NUEVO: Quitar marcas de los números (volver a blanco)
+
     if (newGameId) localStorage.setItem('bingo-game-id', newGameId);
 
-    cerrarModal(true); // Forzar cierre de cualquier modal bloqueante (Sala de Espera) al reiniciar
-    // Reiniciar estado local
+    // Reiniciar estado local en memoria
     historialBolas = [];
     juegoIniciado = false;
-    numerosCantados.clear(); // Limpiar validación
-    cartonesConBingoEnviado.clear(); // Limpiar bloqueos de envío
+    numerosCantados.clear();
+    cartonesConBingoEnviado.clear();
+    cartonesSeleccionadosTemp = new Set();
 
-    // Resetear UI
-    document.getElementById('cards-container').innerHTML = ''; // Limpiar cartones visualmente
-    document.getElementById('waiting-message').style.display = 'block';
-    document.getElementById('last-calls').style.display = 'none';
-    document.getElementById('last-calls').innerHTML = `
-        <div class="ball-placeholder">--</div>
-        <div class="ball-placeholder">--</div>
-        <div class="ball-placeholder">--</div>
-        <div class="ball-placeholder">--</div>
-        <div class="ball-placeholder">--</div>
-    `;
+    // Resetear UI inmediatamente (protección con checks de existencia)
+    const container = document.getElementById('cards-container');
+    if (container) container.innerHTML = '';
 
-    cartonesSeleccionadosTemp = new Set(); // Resetear selección temporal
+    const wMsg = document.getElementById('waiting-message');
+    if (wMsg) wMsg.style.display = 'block';
 
-    // Volver al flujo inicial (Menú de solicitud/comprar)
-    cargarJuego();
+    const lastCalls = document.getElementById('last-calls');
+    if (lastCalls) {
+        lastCalls.style.display = 'none';
+        lastCalls.innerHTML = `
+            <div class="ball-placeholder">--</div>
+            <div class="ball-placeholder">--</div>
+            <div class="ball-placeholder">--</div>
+            <div class="ball-placeholder">--</div>
+            <div class="ball-placeholder">--</div>
+        `;
+    }
+
+    // CRÍTICO: Recargar la página para asegurar que todo el estado de JS y la UI se limpien al 100%
+    console.log("Reinicio de partida: Recargando para asegurar estado limpio...");
+    setTimeout(() => {
+        window.location.reload();
+    }, 1000); // Aumentar ligeramente el tiempo para evitar interrupciones
 });
 
 socket.on('sync-game-id', (serverGameId) => {
@@ -573,6 +587,8 @@ socket.on('sync-game-id', (serverGameId) => {
     if (localGameId && localGameId !== serverGameId) {
         console.log("Sincronización: Partida nueva detectada. Limpiando cartones antiguos...");
         localStorage.removeItem('bingo-ajp-cartones');
+        localStorage.removeItem('bingo-ajp-carton');
+        localStorage.removeItem('bingo-ajp-carton-id');
         localStorage.removeItem('bingo-pending-selection');
         limpiarMarcasLocales(); // NUEVO: Limpiar marcas al sincronizar reinicio
         localStorage.setItem('bingo-game-id', serverGameId);
@@ -840,7 +856,7 @@ function verificarEstadoBotonesBingo() {
     let cartones = [];
     try {
         cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-    } catch(e) { cartones = []; }
+    } catch (e) { cartones = []; }
 
     const marcados = new Set();
     Object.keys(localStorage).forEach(key => {
@@ -1026,7 +1042,7 @@ function lanzarConfeti() {
     if (audioFireworks) {
         audioFireworks.volume = 0.6; // Volumen principal
         audioFireworks.currentTime = 0;
-        audioFireworks.play().catch(() => {});
+        audioFireworks.play().catch(() => { });
     }
 
     function randomInRange(min, max) {
@@ -1063,7 +1079,7 @@ function lanzarConfeti() {
         if (audioFireworks && Math.random() > 0.6) {
             const clone = audioFireworks.cloneNode(); // Clonar para permitir superposición de sonidos
             clone.volume = 0.3; // Volumen más bajo para el fondo
-            clone.play().catch(() => {});
+            clone.play().catch(() => { });
         }
 
         // Explosiones aleatorias (izquierda y derecha)
@@ -1303,11 +1319,18 @@ socket.on('solicitud-aprobada', (data) => {
 
 // Limpiar todas las marcas manuales (color azul) del localStorage
 function limpiarMarcasLocales() {
-    Object.keys(localStorage).forEach(key => {
+    const keysSet = Object.keys(localStorage);
+    keysSet.forEach(key => {
+        // Borrar marcas individuales
         if (key.startsWith('marcado-')) {
             localStorage.removeItem(key);
         }
+        // Borrar también referencias a cartones antiguos si quedaron huérfanos
+        if (key === 'bingo-ajp-carton' || key === 'bingo-ajp-carton-id') {
+            localStorage.removeItem(key);
+        }
     });
+    console.log("Limpieza de marcas locales completada.");
 }
 
 socket.on('solicitud-rechazada', (data) => {
@@ -1391,8 +1414,9 @@ window.mostrarModalCambioCarton = function (idOld) {
     });
 }
 
-window.confirmarCambioCarton = function (idOld, idNew) {
-    if (!confirm(`¿Confirmas el cambio del cartón ${idOld} por el #${idNew}?`)) return;
+window.confirmarCambioCarton = async function (idOld, idNew) {
+    const confirmado = await window.mostrarConfirmacion("CONFIRMAR CAMBIO", `¿Confirmas el cambio del cartón ${idOld} por el #${idNew}?`);
+    if (!confirmado) return;
 
     // 1. Liberar el viejo en el servidor
     socket.emit('liberar-carton', idOld);
@@ -1406,7 +1430,7 @@ window.confirmarCambioCarton = function (idOld, idNew) {
     let cartones = [];
     try {
         cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-    } catch(e) { cartones = []; }
+    } catch (e) { cartones = []; }
 
     const index = cartones.findIndex(c => c.id === idOld);
     if (index !== -1) {
@@ -1517,8 +1541,8 @@ function mostrarVistaPreviaCarton(id) {
             let style = 'background:rgba(255,255,255,0.05); aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:0.85em; color:white;';
 
             if (val === 'FREE') {
-                content = '★';
-                style = 'background:rgba(51, 107, 135, 0.2); aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:0.85em; color:var(--gold-solid); border:1px dashed var(--gold-solid);';
+                content = '<img src="./icons/ajp.png" class="free-img">';
+                style = 'background:rgba(51, 107, 135, 0.2); aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:4px; border:1px dashed var(--gold-solid);';
             }
             html += `<div style="${style}">${content}</div>`;
         }
@@ -1622,7 +1646,7 @@ window.confirmarSeleccionCartones = function (cantidad) {
         let cartonesActuales = [];
         try {
             cartonesActuales = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-        } catch(e) { cartonesActuales = []; }
+        } catch (e) { cartonesActuales = []; }
 
         // Usamos el ID numérico como string para consistencia
         cartonesActuales.push({ id: String(id), data: dataFija });
@@ -1644,7 +1668,7 @@ window.confirmarSeleccionCartones = function (cantidad) {
                     let cartones = [];
                     try {
                         cartones = JSON.parse(localStorage.getItem('bingo-ajp-cartones')) || [];
-                    } catch(e) { cartones = []; }
+                    } catch (e) { cartones = []; }
 
                     const filtrados = cartones.filter(c => c.id !== String(id));
                     localStorage.setItem('bingo-ajp-cartones', JSON.stringify(filtrados));
@@ -2014,3 +2038,42 @@ window.instalarPWA = function () {
 };
 
 window.onload = cargarJuego;
+
+// --- SISTEMA DE CONFIRMACIÓN PERSONALIZADO ---
+window.mostrarConfirmacion = function (titulo, mensaje) {
+    return new Promise((resolve) => {
+        let modal = document.getElementById('confirm-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'confirm-modal';
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '25000'; // Por encima de todo
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 420px; text-align: center; border-color: var(--gold-solid);">
+                    <div style="font-size: 3rem; margin-bottom: 15px; animation: pulse 2s infinite;">❓</div>
+                    <h2 id="confirm-title" style="color: var(--gold-solid); margin-bottom: 15px; font-size: 1.5rem;">TITULO</h2>
+                    <p id="confirm-message" style="color: white; margin-bottom: 25px; font-size: 1.1rem; white-space: pre-wrap; line-height: 1.5;"></p>
+                    <div style="display: flex; gap: 15px; justify-content: center;">
+                        <button id="btn-confirm-cancel" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted); width: auto; padding: 10px 25px;">CANCELAR</button>
+                        <button id="btn-confirm-ok" style="background: var(--gold-gradient); color: black; width: auto; padding: 10px 30px;">ACEPTAR</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        if (modal.style.display === 'flex') return; // Evitar que se abra varias veces a la vez
+
+        document.getElementById('confirm-title').textContent = titulo;
+        document.getElementById('confirm-message').textContent = mensaje;
+        modal.style.display = 'flex';
+
+        const btnOk = document.getElementById('btn-confirm-ok');
+        const btnCancel = document.getElementById('btn-confirm-cancel');
+
+        const cleanup = () => { modal.style.display = 'none'; btnOk.onclick = null; btnCancel.onclick = null; };
+
+        btnOk.onclick = () => { cleanup(); resolve(true); };
+        btnCancel.onclick = () => { cleanup(); resolve(false); };
+    });
+};

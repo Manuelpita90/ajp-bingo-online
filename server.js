@@ -50,9 +50,9 @@ async function loadWinners() {
 async function saveWinner(winner) {
     if (globalWinners === null) await loadWinners();
     globalWinners.unshift(winner); // Añadir al principio
-    
+
     // Bloqueo simple para evitar condiciones de carrera en disco
-    while(isSavingWinner) await new Promise(r => setTimeout(r, 50));
+    while (isSavingWinner) await new Promise(r => setTimeout(r, 50));
     isSavingWinner = true;
     try {
         await fsPromises.writeFile(WINNERS_FILE, JSON.stringify(globalWinners, null, 2));
@@ -87,16 +87,16 @@ async function saveGameHistory(gameData) {
     const now = new Date();
     // Fecha de inicio exacto de ayer (00:00:00)
     const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    
+
     // Podar el historial para mantener SOLO las de hoy y de ayer
     globalGameHistory = globalGameHistory.filter(game => new Date(game.timestamp) >= startOfYesterday);
 
     globalGameHistory.unshift(gameData);
-    
+
     // Opcional: Conservar hasta 100 partidas entre los dos días de registro
     if (globalGameHistory.length > 100) globalGameHistory = globalGameHistory.slice(0, 100);
 
-    while(isSavingHistory) await new Promise(r => setTimeout(r, 50));
+    while (isSavingHistory) await new Promise(r => setTimeout(r, 50));
     isSavingHistory = true;
     try {
         await fsPromises.writeFile(GAMES_FILE, JSON.stringify(globalGameHistory, null, 2));
@@ -367,11 +367,11 @@ io.on('connection', (socket) => {
 
         if (globalGameHistory.length !== originalLen) {
             // Guardar al disco si purgamos registros obsoletos
-            while(isSavingHistory) await new Promise(r => setTimeout(r, 50));
+            while (isSavingHistory) await new Promise(r => setTimeout(r, 50));
             isSavingHistory = true;
-            try { 
-                await fsPromises.writeFile(GAMES_FILE, JSON.stringify(globalGameHistory, null, 2)); 
-            } catch(e) { }
+            try {
+                await fsPromises.writeFile(GAMES_FILE, JSON.stringify(globalGameHistory, null, 2));
+            } catch (e) { }
             isSavingHistory = false;
         }
 

@@ -10,7 +10,7 @@ const ASSETS = [
   './sounds/pop.mp3',
   './sounds/win.mp3',
   './sounds/fail.mp3',
-  './sounds/request.mp3',
+  './sounds/special-alert.mp3',
   './sounds/suspense.mp3',
   './sounds/alarm.mp3',
   './sounds/fireworks.mp3',
@@ -34,7 +34,7 @@ self.addEventListener('fetch', (event) => {
         const responseClone = networkResponse.clone();
         caches.open(CACHE_NAME).then((cache) => {
           // Ignorar solicitudes con schemes no soportados (ej. chrome-extension)
-          if(event.request.url.startsWith('http')) {
+          if (event.request.url.startsWith('http')) {
             cache.put(event.request, responseClone);
           }
         });
@@ -42,7 +42,9 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => {
         // En caso de estar sin internet (offline), devolver la memoria (caché)
-        return caches.match(event.request);
+        return caches.match(event.request).then((response) => {
+          return response || new Response('Contenido no disponible sin conexión', { status: 503, statusText: 'Service Unavailable' });
+        });
       })
   );
 });

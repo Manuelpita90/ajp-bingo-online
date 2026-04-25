@@ -48,7 +48,8 @@ socket.on('admin-action-error', (msg) => {
 // Pre-cargar audios para rendimiento
 const audioWin = new Audio('sounds/win.mp3');
 const audioFail = new Audio('sounds/fail.mp3');
-const audioRequest = new Audio('sounds/request.mp3');
+const audioRequest = new Audio('sounds/special-alert.mp3'); // Sonido especial para solicitudes
+audioRequest.volume = 1.0; // Volumen al máximo
 const audioAlarm = new Audio('sounds/alarm.mp3'); // Asegúrate de añadir este archivo
 audioAlarm.loop = true;
 audioAlarm.volume = 0.3; // Volumen suave para no aturdir
@@ -323,7 +324,7 @@ function ensureAdminModal() {
 }
 
 // 3. Función Principal: Extraer y Anunciar Bola
-function extraerBola() {
+async function extraerBola() {
     if (isAnimating) return;
 
     // VALIDACIÓN: Impedir inicio si hay pendientes
@@ -332,7 +333,8 @@ function extraerBola() {
     }
 
     if (juegoPausado) {
-        if (confirm("⛔ El juego está PAUSADO tras un Bingo válido.\n¿Ya has verificado el cartón y deseas continuar?")) {
+        const confirmado = await window.mostrarConfirmacion("JUEGO PAUSADO", "⛔ El juego está PAUSADO tras un Bingo válido.\n\n¿Ya has verificado el cartón y deseas continuar?");
+        if (confirmado) {
             juegoPausado = false;
             // Restaurar botón de extracción
             const btn = document.querySelector('.btn-extract');
@@ -733,11 +735,11 @@ socket.on('historial-ganadores', (lista) => {
 });
 
 // 5. Reiniciar el Juego
-function reiniciarJuego() {
-    if (confirm("¿Deseas resetear el tablero para todos los jugadores?")) {
+window.reiniciarJuego = async function () {
+    if (await window.mostrarConfirmacion("REINICIAR PARTIDA", "¿Deseas resetear el tablero para todos los jugadores?")) {
         socket.emit('reiniciar-juego');
     }
-}
+};
 
 socket.on('sync-game-id', (id) => {
     // El ID ya no controla el tiempo, solo la sesión
@@ -924,20 +926,20 @@ function toggleFullScreen() {
 }
 
 // 8.1 Cerrar Sesión
-window.cerrarSesionAdmin = function () {
-    if (confirm("¿Estás seguro de que deseas cerrar sesión?")) {
+window.cerrarSesionAdmin = async function () {
+    if (await window.mostrarConfirmacion("CERRAR SESIÓN", "¿Estás seguro de que deseas cerrar sesión?")) {
         sessionStorage.removeItem('admin-token');
         window.location.reload();
     }
 };
 
 // 9. Mensajería Global
-window.enviarMensajeGlobal = function () {
+window.enviarMensajeGlobal = async function () {
     const input = document.getElementById('admin-msg-input');
     const msg = input.value.trim();
 
     if (msg) {
-        if (confirm(`¿Enviar mensaje a TODOS los jugadores?\n\n"${msg}"`)) {
+        if (await window.mostrarConfirmacion("MENSAJE GLOBAL", `¿Enviar mensaje a TODOS los jugadores?\n\n"${msg}"`)) {
             console.log("Enviando mensaje global:", msg);
             socket.emit('admin-mensaje', msg);
             input.value = '';
@@ -955,11 +957,11 @@ window.enviarMensajeGlobal = function () {
 }
 
 // 9.1 Cambiar Patrón de Juego
-window.cambiarPatronJuego = function () {
+window.cambiarPatronJuego = async function () {
     const select = document.getElementById('pattern-select');
     const patron = select.value;
     const texto = select.options[select.selectedIndex].text;
-    if (confirm(`¿Cambiar el modo de victoria a: ${texto}?`)) {
+    if (await window.mostrarConfirmacion("MODO DE JUEGO", `¿Cambiar el modo de victoria a: ${texto}?`)) {
         socket.emit('admin-cambiar-patron', patron);
     }
 };
@@ -1176,7 +1178,7 @@ socket.on('admin-historial-partidas', (history) => {
                 }
             });
         }
-        
+
         // Sumar ganadores de la ronda activa que aún no se guardan en el history
         const listaActiva = Array.isArray(currentWinnersList) ? currentWinnersList : [];
         const listaCompleta = listaActiva.concat(winnersHoy);
@@ -1255,7 +1257,7 @@ socket.on('admin-nueva-solicitud', (data) => {
     // Reproducir sonido de notificación
     if (audioRequest) {
         audioRequest.currentTime = 0;
-        audioRequest.play().catch(e => { });
+        audioRequest.play().catch(e => console.warn("El navegador bloqueó el sonido. Haz clic en cualquier parte del panel para permitir audios.", e));
     }
 
     const item = document.createElement('div');
@@ -1296,8 +1298,8 @@ window.aprobarSolicitud = function (socketId, cantidad, nombre) {
     updateRequestsButton();
 };
 
-window.rechazarSolicitud = function (socketId) {
-    if (confirm("¿Rechazar solicitud?")) {
+window.rechazarSolicitud = async function (socketId) {
+    if (await window.mostrarConfirmacion("RECHAZAR SOLICITUD", "¿Estás seguro de rechazar esta solicitud?")) {
         socket.emit('admin-rechazar-solicitud', { socketId, motivo: "Denegado por el administrador. Favor revise sus datos." });
         const item = document.getElementById(`req-${socketId}`);
         if (item) item.remove();
@@ -1405,8 +1407,8 @@ function enviarMensajeChat() {
     input.value = '';
 }
 
-window.borrarChat = function () {
-    if (confirm("¿Estás seguro de que quieres borrar el historial del chat para TODOS los usuarios?")) {
+window.borrarChat = async function () {
+    if (await window.mostrarConfirmacion("BORRAR CHAT", "¿Estás seguro de que quieres borrar el historial del chat para TODOS los usuarios?")) {
         socket.emit('admin-clear-chat');
     }
 };
@@ -1507,8 +1509,8 @@ function verCartonEnModal(data) {
             let content = val;
 
             if (val === 'FREE') {
-                content = '★';
-                style = 'background:rgba(51, 107, 135, 0.15); color:var(--gold-solid); border:1px dashed var(--gold-solid);';
+                content = '<img src="./icons/ajp.png" class="free-img">';
+                style = 'background:rgba(51, 107, 135, 0.15); border:1px dashed var(--gold-solid);';
             } else {
                 const sVal = String(val);
                 if (winners.has(sVal)) {
@@ -1794,3 +1796,42 @@ function updateTimerDisplay() {
         (s < 10 ? '0' : '') + s;
     el.textContent = txt;
 }
+
+// --- SISTEMA DE CONFIRMACIÓN PERSONALIZADO ---
+window.mostrarConfirmacion = function (titulo, mensaje) {
+    return new Promise((resolve) => {
+        let modal = document.getElementById('confirm-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'confirm-modal';
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '25000'; // Por encima de todo
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 420px; text-align: center; border-color: var(--gold-solid);">
+                    <div style="font-size: 3rem; margin-bottom: 15px; animation: pulse 2s infinite;">❓</div>
+                    <h2 id="confirm-title" style="color: var(--gold-solid); margin-bottom: 15px; font-size: 1.5rem;">TITULO</h2>
+                    <p id="confirm-message" style="color: white; margin-bottom: 25px; font-size: 1.1rem; white-space: pre-wrap; line-height: 1.5;"></p>
+                    <div style="display: flex; gap: 15px; justify-content: center;">
+                        <button id="btn-confirm-cancel" style="background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted); width: auto; padding: 10px 25px;">CANCELAR</button>
+                        <button id="btn-confirm-ok" style="background: var(--gold-gradient); color: black; width: auto; padding: 10px 30px;">ACEPTAR</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        if (modal.style.display === 'flex') return; // Evitar que se abra varias veces
+
+        document.getElementById('confirm-title').textContent = titulo;
+        document.getElementById('confirm-message').textContent = mensaje;
+        modal.style.display = 'flex';
+
+        const btnOk = document.getElementById('btn-confirm-ok');
+        const btnCancel = document.getElementById('btn-confirm-cancel');
+
+        const cleanup = () => { modal.style.display = 'none'; btnOk.onclick = null; btnCancel.onclick = null; };
+
+        btnOk.onclick = () => { cleanup(); resolve(true); };
+        btnCancel.onclick = () => { cleanup(); resolve(false); };
+    });
+};
