@@ -35,6 +35,7 @@ let autoPlaySpeed = 4000;
 let voiceEnabled = true;
 let currentPattern = 'linea'; // Estado local del patrón
 let lastPendingCount = -1; // Para detectar cuando todos están listos
+let totalCartonesVendidos = parseInt(localStorage.getItem('bingo-total-vendidos')) || 0; // Contador histórico de vendidos
 
 socket.on('admin-error', (msg) => {
     sessionStorage.removeItem('admin-token');
@@ -83,10 +84,11 @@ function initTablero() {
         statusBar.id = 'admin-status-bar';
         statusBar.className = 'status-bar';
         statusBar.innerHTML = `
-            <div style="display:flex; gap:15px">
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center;">
                 <div onclick="verDetallesJugadores()" style="cursor:pointer" title="Ver lista de Jugadores">👥 JUGADORES: <span id="player-count" style="color:white; font-size:1.2em">${cachedPlayerCount}</span></div>
                 <div onclick="verJugadoresSinCarton()" title="Ver jugadores pendientes" style="cursor:pointer">⏳ FALTAN: <span id="pending-count" style="color:var(--text-muted); font-size:1.2em">0</span></div>
                 <div onclick="verDetallesCartones()" style="cursor:pointer" title="Ver lista de IDs">🎫 CARTONES: <span id="card-count" style="color:white; font-size:1.2em">${cachedCardCount}</span></div>
+                <div onclick="resetearVendidos()" style="cursor:pointer" title="Cartones vendidos o entregados (Click para reiniciar)">💰 VENDIDOS: <span id="sold-count" style="color:var(--success); font-size:1.2em">${totalCartonesVendidos}</span></div>
                 <div title="Total de bolas extraídas">🎱 BOLAS: <span id="balls-count" style="color:white; font-size:1.2em">${bolasExtraidas.length}</span></div>
                 <div title="Tiempo transcurrido">⏱️ <span id="game-timer" style="color:white; font-size:1.2em">00:00</span></div>
             </div>
@@ -1293,9 +1295,25 @@ socket.on('admin-nueva-solicitud', (data) => {
 
 window.aprobarSolicitud = function (socketId, cantidad, nombre) {
     socket.emit('admin-aprobar-solicitud', { socketId, cantidad });
+
+    // Sumar al contador de vendidos
+    totalCartonesVendidos += parseInt(cantidad) || 0;
+    localStorage.setItem('bingo-total-vendidos', totalCartonesVendidos);
+    const soldCount = document.getElementById('sold-count');
+    if (soldCount) soldCount.textContent = totalCartonesVendidos;
+
     const item = document.getElementById(`req-${socketId}`);
     if (item) item.remove();
     updateRequestsButton();
+};
+
+window.resetearVendidos = async function () {
+    if (await window.mostrarConfirmacion("RESETEAR CONTADOR", "¿Deseas poner a cero el contador de cartones vendidos/entregados?")) {
+        totalCartonesVendidos = 0;
+        localStorage.setItem('bingo-total-vendidos', '0');
+        const soldCount = document.getElementById('sold-count');
+        if (soldCount) soldCount.textContent = '0';
+    }
 };
 
 window.rechazarSolicitud = async function (socketId) {
